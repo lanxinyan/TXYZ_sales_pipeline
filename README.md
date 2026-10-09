@@ -35,15 +35,39 @@ cp .env.example .env        # then fill it in
 
 1. **Gmail**: In Google Cloud Console, enable the Gmail API and create an *OAuth client ID → Desktop app*.
    Save it as `credentials.json`, then run `sales-pipeline gmail-auth` and sign in as
-   xinyan.zhang@creative-biostructure.com. The scope is `gmail.modify`, which allows reading and labelling.
-   The tool never sends mail.
+   xinyan.zhang@creative-biostructure.com. The scope is `gmail.modify` (read, label, drafts). Mail is
+   sent only when you press **Send now** on a draft in the dashboard.
 2. **Claude**: Put your key in `ANTHROPIC_API_KEY`. Set `USE_LLM=false` to run on the rule-based parser alone.
 3. **Zoho CRM**: At <https://api-console.zoho.com>, create a *Self Client* and generate a code with scope
    `ZohoCRM.modules.ALL,ZohoCRM.settings.READ`. Put the client id and secret in `.env`, then run
    `sales-pipeline zoho-auth <code>` and paste the printed `ZOHO_REFRESH_TOKEN` into `.env`.
    If your Zoho account isn't on the US data center (`crm.zoho.com`), change `ZOHO_ACCOUNTS_URL` and `ZOHO_API_DOMAIN`.
 
-## Daily use
+## Daily use: the dashboard
+
+```bash
+sales-pipeline ui --demo     # try it first with fictional data (nothing leaves your computer)
+sales-pipeline ui            # live: http://127.0.0.1:8765
+```
+
+One list, sorted by priority. Each item has a ready-made plan:
+
+| Section | What happens when you press **Approve plan** (`A`) |
+|---|---|
+| **Runs automatically** | Zoho Sales Order (or Account + Contact for a quote request), Gmail label. Untick anything you don't want. |
+| **Customer-facing: waits for your Send** | Order confirmation / quote acknowledgement / optional invoice request to accounting. These are saved as **Gmail drafts** and move to *Waiting to send*. Nothing goes out until you press **Send now** (you can still edit the text first) or **Discard**. |
+
+Priority (High / Medium / Low) adds up: order value, how long the customer has been waiting on
+a reply, new customer, prepayment, and anything the checks flagged. Edit any field (company, PO,
+total, items) right in the page before approving; the plan and draft text update to match.
+Keys: `J`/`K` move, `A` approve, `S` skip. **Scan Gmail** pulls in new threads.
+
+Tabs: **To decide** → **Waiting to send** → **Done** (and **Skipped**). A failed step stays in
+*To decide* with the error shown; approving again retries only what failed.
+
+The page only listens on your own computer (127.0.0.1).
+
+## Command line (same actions, no browser)
 
 ```bash
 sales-pipeline scan                      # read new/updated order threads
@@ -100,6 +124,10 @@ To fill custom fields (e.g. sales rep picklist, prepayment flag), extend `sales_
 | `pipeline.py` | merge + validate, review states, Zoho payload, push |
 | `zoho.py` | Zoho CRM v8 REST client (OAuth refresh, search, create, attach) |
 | `store.py` | SQLite review queue |
+| `tasks.py` | kind (order / quote request), priority, and the plan of routine vs. gated steps |
+| `actions.py` | carries out a decision: routine steps, Gmail drafts, send / discard |
+| `web.py`, `ui.html` | the dashboard (standard library web server, no extra installs) |
+| `demo.py` | fictional inbox + in-memory Gmail/Zoho for `ui --demo` |
 | `cli.py` | `sales-pipeline` command |
 
 Run tests with `pytest`.

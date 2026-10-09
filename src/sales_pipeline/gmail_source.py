@@ -9,12 +9,15 @@ from email.utils import getaddresses, parseaddr
 
 from .models import Attachment, EmailMessage, EmailThread
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]  # read + label, never send
+# Read, label and create drafts. This scope also allows sending, but the code only
+# sends a draft when you press Send in the dashboard.
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 LABEL_REVIEW = "Zoho/Needs review"
 LABEL_SYNCED = "Zoho/Synced"
 LABEL_SKIPPED = "Zoho/Not an order"
-ALL_LABELS = (LABEL_REVIEW, LABEL_SYNCED, LABEL_SKIPPED)
+LABEL_QUOTE = "Zoho/Quote request"
+ALL_LABELS = (LABEL_REVIEW, LABEL_SYNCED, LABEL_SKIPPED, LABEL_QUOTE)
 
 
 def _b64(data: str) -> bytes:
@@ -87,6 +90,7 @@ class GmailSource:
             date=headers.get("date", ""),
             body=body,
             attachments=atts,
+            message_id=headers.get("message-id", ""),
         )
 
     def _walk(self, msg_id, part, plain, htmls, atts):
@@ -126,3 +130,23 @@ class GmailSource:
         remove = [self._label_id(n) for n in ALL_LABELS if n != name]
         self.svc.users().threads().modify(
             userId="me", id=thread_id, body={"addLabelIds": add, "removeLabelIds": remove}).execute()
+
+    # ---------- drafts (customer-facing replies are gated on these) ----------
+
+    def create_draft(self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+        from email.mime.text import MIMEText
+
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["To"], msg["Subject"] = to, subject
+        if in_reply_to:
+            msg["In-Reply-To"] = msg["References"] = in_reply_to
+        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+        d = self.svc.users().drafts().create(
+            userId="me", body={"message": {"raw": raw, "threadId": thread_id}}).execute()
+        return d["id"]
+
+    def send_draft(self, draft_id: str) -> str:
+        return self.svc.users().drafts().send(userId="me", body={"id": draft_id}).execute()["id"]
+
+    def delete_draft(self, draft_id: str) -> None:
+        self.svc.users().drafts().delete(userId="me", id=draft_id).execute()

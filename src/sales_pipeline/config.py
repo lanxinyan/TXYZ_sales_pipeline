@@ -30,7 +30,8 @@ class Settings:
     gmail_credentials_file: str = "credentials.json"
     gmail_token_file: str = "token.json"
     gmail_query: str = (
-        '(subject:Order_ OR subject:"purchase order" OR subject:PO OR "PO number") '
+        '(subject:Order_ OR subject:"purchase order" OR subject:PO OR "PO number" '
+        "OR subject:quote OR subject:quotation OR subject:RFQ) "
         "newer_than:30d -in:sent -category:promotions"
     )
     internal_domains: list[str] = field(default_factory=lambda: list(DEFAULT_INTERNAL_DOMAINS))
@@ -48,6 +49,9 @@ class Settings:
     zoho_so_status: str = "Created"
     zoho_auto_create_products: bool = True
     zoho_generic_product_id: str = ""
+
+    email_signature: str = "Best regards,\nXinyan (Tony) Zhang, PhD\nCreative Biostructure"
+    accounting_email: str = ""
 
     db_path: str = "sales_pipeline.db"
     auto_push: bool = False
@@ -79,6 +83,8 @@ class Settings:
             zoho_so_status=env("ZOHO_SO_STATUS") or d.zoho_so_status,
             zoho_auto_create_products=_bool(env("ZOHO_AUTO_CREATE_PRODUCTS"), d.zoho_auto_create_products),
             zoho_generic_product_id=env("ZOHO_GENERIC_PRODUCT_ID", ""),
+            email_signature=(env("EMAIL_SIGNATURE") or d.email_signature).replace("\\n", "\n"),
+            accounting_email=env("ACCOUNTING_EMAIL", ""),
             db_path=env("DB_PATH") or d.db_path,
             auto_push=_bool(env("AUTO_PUSH"), d.auto_push),
         )

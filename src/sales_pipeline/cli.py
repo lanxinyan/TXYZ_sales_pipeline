@@ -8,6 +8,7 @@
   skip ID              mark a thread as not an order
   push ID|--ready      create the Sales Order(s) in Zoho (--dry-run to preview)
   run                  scan, then push everything ready if AUTO_PUSH=true
+  ui [--demo]          open the review dashboard (http://127.0.0.1:8765)
   gmail-auth           one-time Gmail sign-in (opens a browser)
   zoho-auth CODE       one-time: trade a Zoho self-client grant code for a refresh token
 """
@@ -84,6 +85,9 @@ def main(argv: list[str] | None = None) -> None:
     pu.add_argument("--force", action="store_true", help="push even if not approved")
 
     sub.add_parser("run")
+    ui = sub.add_parser("ui")
+    ui.add_argument("--demo", action="store_true", help="fictional data, nothing leaves your computer")
+    ui.add_argument("--port", type=int, default=8765)
     sub.add_parser("gmail-auth")
     za = sub.add_parser("zoho-auth")
     za.add_argument("code", help="grant code from https://api-console.zoho.com (Self Client)")
@@ -106,6 +110,24 @@ def main(argv: list[str] | None = None) -> None:
         if "refresh_token" not in r:
             sys.exit(f"Zoho did not return a refresh token: {r}")
         print(f"Add this to .env:\nZOHO_REFRESH_TOKEN={r['refresh_token']}")
+        return
+
+    if a.cmd == "ui":
+        from .web import App, serve
+
+        if a.demo:
+            from .demo import seed
+
+            s.db_path = "demo.db"
+            store = Store(s.db_path)
+            gmail, zoho = seed(s, store)
+            serve(App(s, store, gmail=gmail, zoho=zoho, demo=True), a.port)
+            return
+        store = Store(s.db_path)
+        gmail = _gmail(s)
+        zoho = _zoho(s) if s.zoho_refresh_token else None
+        pipe = Pipeline(s, store, gmail=gmail, llm=_llm(s))
+        serve(App(s, store, gmail=gmail, zoho=zoho, scanner=lambda: pipe.scan()), a.port)
         return
 
     store = Store(s.db_path)

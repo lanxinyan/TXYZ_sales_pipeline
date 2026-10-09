@@ -120,6 +120,8 @@ class Pipeline:
         self.s, self.store, self.gmail, self.zoho, self.llm = settings, store, gmail, zoho, llm
 
     def process_thread(self, thread: EmailThread) -> str:
+        from .tasks import build_plan, classify, prioritize, waiting_since
+
         rules = rules_extract(thread, self.s.order_code_regex, self.s.internal_domains)
         llm_order = None
         if self.llm is not None:
@@ -129,13 +131,22 @@ class Pipeline:
                 log.warning("Claude extraction failed for %s: %s", thread.id, e)
         order, notes = merge(llm_order, rules, self.s)
 
-        if not order.is_sales_order:
+        kind = classify(thread, order, self.s)
+        if kind == "other":
             status, issues = "skipped", notes
+        elif kind == "quote_request":
+            issues = notes + ([] if order.customer.email else ["customer email unknown"])
+            status = "needs_review"
         else:
             issues = notes + validate(order)
             status = "ready" if not issues else "needs_review"
+        waiting = waiting_since(thread, self.s)
+        priority, reasons = prioritize(kind, order, issues, waiting)
+        previous = self.store.get(thread.id)
+        plan = build_plan(kind, order, thread.subject, self.s, previous.plan if previous else None)
         self.store.save(thread.id, subject=thread.subject, thread_url=thread.url,
-                        message_count=len(thread.messages), status=status, order=order, issues=issues)
+                        message_count=len(thread.messages), status=status, order=order, issues=issues,
+                        kind=kind, priority=priority, reasons=reasons, plan=plan, waiting_since=waiting)
         if self.gmail is not None:
             from .gmail_source import LABEL_REVIEW, LABEL_SKIPPED
 
@@ -146,7 +157,7 @@ class Pipeline:
         counts: dict[str, int] = {}
         for tid in self.gmail.search(query or self.s.gmail_query, limit):
             existing = self.store.get(tid)
-            if existing and existing.status == "pushed":
+            if existing and existing.status in ("pushed", "done", "awaiting_send"):
                 continue
             thread = self.gmail.get_thread(tid)
             # Only re-read a thread when new replies arrived (or when asked to).
@@ -163,7 +174,7 @@ class Pipeline:
             raise KeyError(f"unknown thread {thread_id}")
         if rec.status == "pushed" and not force:
             return {"status": "already pushed", "zoho_id": rec.zoho_id}
-        if rec.status not in ("ready", "failed") and not force:
+        if rec.status not in ("ready", "failed", "approved") and not force:
             raise ValueError(f"thread {thread_id} is '{rec.status}' - approve it first")
         o = rec.order
         if dry_run:

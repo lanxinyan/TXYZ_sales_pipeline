@@ -26,6 +26,7 @@ class EmailMessage:
     date: str
     body: str
     attachments: list[Attachment] = field(default_factory=list)
+    message_id: str = ""  # RFC 822 Message-ID header, used to thread replies
 
 
 @dataclass

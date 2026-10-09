@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from .models import Order
@@ -23,6 +23,16 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at    TEXT
 )
 """
+# Columns added for the review dashboard (migrated onto older databases).
+EXTRA_COLUMNS = {
+    "kind": "TEXT DEFAULT 'order'",
+    "priority": "INTEGER DEFAULT 0",
+    "reasons": "TEXT",
+    "plan_json": "TEXT",
+    "waiting_since": "TEXT",
+}
+FIELDS = ["thread_id", "subject", "thread_url", "message_count", "status", "order_code", "order_json",
+          "issues", "zoho_id", "error", "updated_at", *EXTRA_COLUMNS]
 
 
 @dataclass
@@ -38,35 +48,51 @@ class Record:
     zoho_id: str | None
     error: str | None
     updated_at: str
+    kind: str = "order"
+    priority: int = 0
+    reasons: list[str] = field(default_factory=list)
+    plan: list[dict] = field(default_factory=list)
+    waiting_since: str | None = None
 
 
 class Store:
     def __init__(self, path: str):
-        self.db = sqlite3.connect(path)
+        self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
         self.db.execute(SCHEMA)
+        have = {r["name"] for r in self.db.execute("PRAGMA table_info(orders)")}
+        for col, typ in EXTRA_COLUMNS.items():
+            if col not in have:
+                self.db.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
         self.db.commit()
 
     def get(self, thread_id: str) -> Record | None:
         row = self.db.execute("SELECT * FROM orders WHERE thread_id=?", (thread_id,)).fetchone()
         return self._rec(row) if row else None
 
-    def list(self, status: str | None = None) -> list[Record]:
-        q, args = "SELECT * FROM orders", ()
+    def list(self, status: str | list[str] | None = None) -> list[Record]:
+        q, args = "SELECT * FROM orders", []
         if status:
-            q, args = q + " WHERE status=?", (status,)
-        return [self._rec(r) for r in self.db.execute(q + " ORDER BY updated_at DESC", args)]
+            statuses = [status] if isinstance(status, str) else list(status)
+            q += f" WHERE status IN ({','.join('?' * len(statuses))})"
+            args = statuses
+        return [self._rec(r) for r in self.db.execute(q + " ORDER BY priority DESC, updated_at DESC", args)]
 
     def save(self, thread_id: str, *, subject: str = "", thread_url: str = "", message_count: int = 0,
              status: str, order: Order | None, issues: list[str], zoho_id: str | None = None,
-             error: str | None = None) -> None:
-        self.db.execute(
-            "INSERT OR REPLACE INTO orders VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (thread_id, subject, thread_url, message_count, status,
-             order.order_code if order else None,
-             order.model_dump_json() if order else None,
-             json.dumps(issues, ensure_ascii=False), zoho_id, error,
-             datetime.now(timezone.utc).isoformat(timespec="seconds")))
+             error: str | None = None, kind: str = "order", priority: int = 0,
+             reasons: list[str] | None = None, plan: list[dict] | None = None,
+             waiting_since: str | None = None) -> None:
+        values = dict(
+            thread_id=thread_id, subject=subject, thread_url=thread_url, message_count=message_count,
+            status=status, order_code=order.order_code if order else None,
+            order_json=order.model_dump_json() if order else None,
+            issues=json.dumps(issues, ensure_ascii=False), zoho_id=zoho_id, error=error,
+            updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            kind=kind, priority=priority, reasons=json.dumps(reasons or [], ensure_ascii=False),
+            plan_json=json.dumps(plan or [], ensure_ascii=False), waiting_since=waiting_since)
+        self.db.execute(f"INSERT OR REPLACE INTO orders ({','.join(FIELDS)}) VALUES "
+                        f"({','.join('?' * len(FIELDS))})", [values[f] for f in FIELDS])
         self.db.commit()
 
     def update(self, thread_id: str, **fields) -> None:
@@ -75,7 +101,8 @@ class Store:
             raise KeyError(thread_id)
         merged = dict(subject=rec.subject, thread_url=rec.thread_url, message_count=rec.message_count,
                       status=rec.status, order=rec.order, issues=rec.issues, zoho_id=rec.zoho_id,
-                      error=rec.error)
+                      error=rec.error, kind=rec.kind, priority=rec.priority, reasons=rec.reasons,
+                      plan=rec.plan, waiting_since=rec.waiting_since)
         merged.update(fields)
         self.save(thread_id, **merged)
 
@@ -86,4 +113,6 @@ class Store:
             message_count=row["message_count"], status=row["status"], order_code=row["order_code"],
             order=Order.model_validate_json(row["order_json"]) if row["order_json"] else None,
             issues=json.loads(row["issues"] or "[]"), zoho_id=row["zoho_id"], error=row["error"],
-            updated_at=row["updated_at"])
+            updated_at=row["updated_at"], kind=row["kind"] or "order", priority=row["priority"] or 0,
+            reasons=json.loads(row["reasons"] or "[]"), plan=json.loads(row["plan_json"] or "[]"),
+            waiting_since=row["waiting_since"])

@@ -1,0 +1,10 @@
+__pycache__/
+*.egg-info/
+.venv/
+.pytest_cache/
+# secrets and local state - never commit
+.env
+credentials.json
+token.json
+*.db
+exports/

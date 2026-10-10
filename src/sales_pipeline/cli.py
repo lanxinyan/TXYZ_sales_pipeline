@@ -97,10 +97,15 @@ def _check(s: Settings) -> None:
         try:
             from .crm import CustomerCRM
 
-            crm = CustomerCRM(_zoho(s), s)
+            from .zoho import NO_API_ACCESS
+
+            z = _zoho(s)
+            z.list_modules()          # a real call, so permission problems show up here
+            crm = CustomerCRM(z, s)
             zoho_ok = line(True, f"Zoho connected; customers are looked up in {', '.join(crm.modules())}")
         except Exception as e:
-            line(False, "Zoho connection", f"check ZOHO_CLIENT_ID/SECRET/REFRESH_TOKEN in .env ({e})")
+            fix = str(e) if str(e) == NO_API_ACCESS else f"check ZOHO_CLIENT_ID/SECRET/REFRESH_TOKEN in .env ({e})"
+            line(False, "Zoho connection", fix)
     else:
         line(False, "Zoho connected", "README, step 4: create a Self Client, then `sales-pipeline zoho-auth <code>`")
     if zoho_ok:
@@ -206,9 +211,14 @@ def main(argv: list[str] | None = None) -> None:
     if a.cmd == "zoho-setup":
         from .crm import STAGES, CustomerCRM, load_tag_map, suggest_tag_map
 
+        from .zoho import ZohoError
+
         z = _zoho(s)
         crm = CustomerCRM(z, s)
-        modules = z.list_modules()
+        try:
+            modules = z.list_modules()
+        except ZohoError as e:
+            sys.exit(str(e))
         chosen = crm.modules()
         print("Your Zoho modules (name shown in Zoho -> internal API name):")
         for m in modules:

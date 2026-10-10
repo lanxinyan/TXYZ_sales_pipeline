@@ -67,3 +67,19 @@ def test_existing_zoho_tags_are_mapped_to_stages():
     assert m == {"ordered": "已下单", "lost": "不买了", "no_response": "无回复", "quoted": "已报价",
                  "following_up": "跟进中", "inquiry": "询价"}
     assert suggest_tag_map([]) == {"ordered": "已下单", "lost": "不买了"}
+
+
+def test_missing_api_permission_gets_a_plain_explanation():
+    import pytest
+
+    from sales_pipeline.zoho import NO_API_ACCESS, ZohoError
+
+    class Denied(FakeHTTP):
+        def request(self, method, url, headers=None, timeout=None, **kw):
+            return Resp(403, {"code": "NO_PERMISSION", "details": {"permissions": ["Crm_Implied_Api_Access"]},
+                              "message": "permission denied", "status": "error"})
+
+    z = ZohoCRM("https://accounts.zoho.com", "https://www.zohoapis.com", "cid", "sec", "rt", session=Denied())
+    with pytest.raises(ZohoError) as e:
+        z.list_modules()
+    assert str(e.value) == NO_API_ACCESS and "Profiles" in str(e.value)

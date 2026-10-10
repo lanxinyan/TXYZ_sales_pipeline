@@ -103,6 +103,11 @@ If your company's Google admin blocks this, ask them to allow internal apps to u
 
 Your account is on Zoho's US data center (crm.zoho.com), which is what Sales Desk uses by default.
 
+If it says your user isn't allowed to use the Zoho CRM API (`NO_PERMISSION`, `Crm_Implied_Api_Access`), a Zoho
+administrator has to switch on API access for your profile: **Setup → Users and Control → Security Control →
+Profiles →** your profile **→ Zoho CRM API**. You don't need to reconnect afterwards; just run
+`sales-pipeline zoho-setup --write` again.
+
 **5. Start it (every day)**: double-click **`Start Sales Desk`**. Your browser opens at
 <http://127.0.0.1:8765>. Keep the black window open while you work; closing it stops Sales Desk. It reads
 Gmail when it starts and every 15 minutes after that. Anything missing? Run `sales-pipeline check`, or just

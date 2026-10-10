@@ -15,6 +15,13 @@ class ZohoError(RuntimeError):
     pass
 
 
+NO_API_ACCESS = (
+    "Your Zoho user isn't allowed to use the Zoho CRM API yet (Zoho: NO_PERMISSION, Crm_Implied_Api_Access). "
+    "A Zoho administrator needs to turn on API access for your profile: Setup > Users and Control > "
+    "Security Control > Profiles > your profile > enable 'Zoho CRM API' (API Access). Then run this again; "
+    "you don't need to reconnect.")
+
+
 class ZohoCRM:
     def __init__(self, accounts_url: str, api_domain: str, client_id: str, client_secret: str,
                  refresh_token: str, session: requests.Session | None = None):
@@ -52,6 +59,9 @@ class ZohoCRM:
         except ValueError:
             data = {"raw": r.text}
         if r.status_code >= 400:
+            if isinstance(data, dict) and data.get("code") == "NO_PERMISSION" and \
+                    "Crm_Implied_Api_Access" in str(data.get("details")):
+                raise ZohoError(NO_API_ACCESS)
             raise ZohoError(f"{method} {path} -> {r.status_code}: {data}")
         return data
 

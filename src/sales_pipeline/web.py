@@ -183,7 +183,11 @@ def make_handler(app: App):
 
 
 def serve(app: App, port: int = 8765, scan_every_min: int = 0, open_browser: bool = True) -> None:
-    srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
+    except OSError:
+        raise SystemExit(f"Something is already running at http://127.0.0.1:{port} (probably another Sales Desk "
+                         "window, e.g. the demo). Close that black window first, or add --port 8770.")
     url = f"http://127.0.0.1:{port}"
     if app.scanner:
         def loop():   # first scan right away, then every few minutes while the page is open

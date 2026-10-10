@@ -168,7 +168,7 @@ def main(argv: list[str] | None = None) -> None:
     zs.add_argument("--write", action="store_true", help="save the suggested map to ZOHO_TAG_FILE")
     ui = sub.add_parser("ui")
     ui.add_argument("--demo", action="store_true", help="fictional data, nothing leaves your computer")
-    ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--port", type=int, help="default 8765 (the demo uses 8799, so both can run)")
     ui.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
     sub.add_parser("check")
     sub.add_parser("gmail-auth")
@@ -261,7 +261,7 @@ def main(argv: list[str] | None = None) -> None:
             s.db_path = "demo.db"
             store = Store(s.db_path)
             _, _, pipe = seed(s, store)
-            serve(App(s, store, pipe, demo=True), a.port, open_browser=not a.no_browser)
+            serve(App(s, store, pipe, demo=True), a.port or 8799, open_browser=not a.no_browser)
             return
         if not (os.path.exists(s.gmail_token_file) or os.path.exists(s.gmail_credentials_file)):
             sys.exit("Gmail isn't connected yet, so there is nothing to show.\n"
@@ -279,7 +279,7 @@ def main(argv: list[str] | None = None) -> None:
             print("Note: Zoho isn't connected yet; CRM steps will wait until it is (README, step 4).")
         if pipe.llm is None:
             print("Note: Claude is off (no ANTHROPIC_API_KEY); order emails are read by the built-in parser.")
-        serve(App(s, store, pipe, scanner=pipe.scan), a.port, s.scan_interval_min, open_browser=not a.no_browser)
+        serve(App(s, store, pipe, scanner=pipe.scan), a.port or 8765, s.scan_interval_min, open_browser=not a.no_browser)
         return
 
     if a.cmd == "check":

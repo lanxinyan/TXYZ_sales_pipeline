@@ -152,7 +152,7 @@ To override the choice, set `ZOHO_CUSTOMER_MODULES` in `.env` (comma-separated A
 
 ## Daily use: the dashboard
 
-Start it with **`Start Sales Desk`** (or `sales-pipeline ui`; `sales-pipeline ui --demo` for made-up data).
+Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.1:8765). The demo (`sales-pipeline ui --demo`) runs at http://127.0.0.1:8799 and shows a yellow DEMO DATA badge.
 
 - **To decide**: what needs you today, sorted by priority. Each item shows the conversation (customer /
   you / colleague / accounting / CRM), what colleagues already did, and the plan.

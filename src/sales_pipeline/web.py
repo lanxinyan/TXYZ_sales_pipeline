@@ -1,75 +1,123 @@
 """Local review dashboard:  sales-pipeline ui   ->  http://127.0.0.1:8765
 
-One prioritized list. Each item shows a plan; Approve runs the routine steps and
-turns customer-facing replies into Gmail drafts that wait for your Send."""
+One prioritized to-do list. Each item shows a plan: Approve runs the routine
+steps (Zoho, tags, labels) and prepares the emails; nothing reaches a customer
+or accounting until you send it, and right before sending the thread and Zoho
+are checked again for anything a colleague did in the meantime."""
 from __future__ import annotations
 
 import json
 import logging
 import threading
+import time
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 
-from .actions import Executor
+from .actions import Conflict, Executor
+from .pipeline import Pipeline
 from .store import Record, Store
-from .tasks import level
+from .tasks import action_label, level
 
 log = logging.getLogger(__name__)
 
 VIEWS = {
     "todo": ["needs_review", "ready", "failed", "approved"],
+    "upcoming": ["scheduled"],
     "send": ["awaiting_send"],
     "done": ["done", "pushed"],
     "skipped": ["skipped"],
 }
 
 
-def record_json(r: Record) -> dict:
-    o = r.order
+def record_json(r: Record, s) -> dict:
+    o, c = r.order, r.conv
+    title = None
+    if r.kind == "order" and o:
+        title = o.customer.company or o.customer.contact_name or o.customer.email
+    elif c:
+        name = c.customer_name or (c.salutation or {}).get("name")
+        title = " · ".join(x for x in (name, c.company) if x) or (c.customer_emails[0] if c.customer_emails else None)
+    title = title or (o.customer.company or o.customer.email if o else None)
     return {
         "id": r.thread_id, "subject": r.subject, "url": r.thread_url, "status": r.status, "kind": r.kind,
         "priority": r.priority, "level": level(r.priority), "reasons": r.reasons, "issues": r.issues,
-        "error": r.error, "zoho_id": r.zoho_id, "waiting_since": r.waiting_since, "updated_at": r.updated_at,
-        "order": o.model_dump() if o else None, "plan": r.plan,
-        "title": (o.customer.company or o.customer.contact_name or o.customer.email) if o else None,
+        "error": r.error, "zoho_id": r.zoho_id, "updated_at": r.updated_at, "due_at": r.due_at,
+        "action": action_label(r.kind, c, s), "order": o.model_dump() if o else None, "plan": r.plan,
+        "conv": c.model_dump(exclude={"last_inbound_text"}) if c else None, "title": title,
     }
 
 
 class App:
-    def __init__(self, settings, store: Store, gmail=None, zoho=None, scanner=None, demo=False):
-        self.s, self.store, self.demo = settings, store, demo
-        self.exec = Executor(settings, store, gmail=gmail, zoho=zoho)
+    def __init__(self, settings, store: Store, pipeline: Pipeline, scanner=None, demo: bool = False):
+        self.s, self.store, self.pipeline, self.demo = settings, store, pipeline, demo
+        self.exec = Executor(settings, store, gmail=pipeline.gmail, zoho=pipeline.zoho, pipeline=pipeline)
         self.scanner = scanner
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
+        self.last_scan: str | None = None
 
     def counts(self) -> dict:
         return {v: len(self.store.list(st)) for v, st in VIEWS.items()}
 
+    def scan(self) -> dict:
+        with self.lock:
+            result = self.scanner() if self.scanner else self.pipeline.promote_due()
+            self.last_scan = datetime.now(timezone.utc).isoformat(timespec="seconds")
+            return result
+
+    def _list(self, view: str) -> list[dict]:
+        if view in ("todo", "upcoming"):
+            self.pipeline.promote_due()
+        recs = self.store.list(VIEWS.get(view, VIEWS["todo"]))
+        if view == "upcoming":
+            recs.sort(key=lambda r: r.due_at or "")
+        return [record_json(r, self.s) for r in recs]
+
+    def info(self) -> dict:
+        return {"demo": self.demo, "zoho": self.pipeline.zoho is not None, "gmail": self.pipeline.gmail is not None,
+                "tags": self.pipeline.tags, "last_scan": self.last_scan, "me": self.s.user_email,
+                "followup_days": self.s.followup_days}
+
     def handle(self, method: str, path: str, body: dict) -> tuple[int, dict]:
         parts = [p for p in path.split("?")[0].split("/") if p][1:]  # drop "api"
-        query = dict(q.split("=", 1) for q in path.split("?", 1)[1].split("&")) if "?" in path else {}
+        query = dict(q.split("=", 1) for q in path.split("?", 1)[1].split("&") if "=" in q) if "?" in path else {}
         with self.lock:
             if method == "GET" and parts == ["tasks"]:
-                view = query.get("view", "todo")
-                return 200, {"tasks": [record_json(r) for r in self.store.list(VIEWS.get(view, VIEWS["todo"]))],
-                             "counts": self.counts(), "demo": self.demo}
+                return 200, {"tasks": self._list(query.get("view", "todo")), "counts": self.counts(), **self.info()}
+            if method == "GET" and parts == ["activity"]:
+                return 200, {"activity": self.store.activity(limit=200), "counts": self.counts(), **self.info()}
             if method == "POST" and parts == ["scan"]:
                 if not self.scanner:
-                    return 400, {"error": "Gmail is not connected"}
-                return 200, {"result": self.scanner(), "counts": self.counts()}
+                    return 400, {"error": "Gmail is not connected" if not self.demo else
+                                 "The demo has no Gmail to scan"}
+                return 200, {"result": self.scan(), "counts": self.counts()}
             if len(parts) == 3 and parts[0] == "tasks" and method == "POST":
                 tid, action = parts[1], parts[2]
-                if action == "approve":
-                    rec = self.exec.approve(tid, body.get("order"), body.get("steps"))
-                elif action == "send":
-                    rec = self.exec.send(tid, body["step"], body.get("draft"))
-                elif action == "discard":
-                    rec = self.exec.discard(tid, body["step"])
-                elif action == "skip":
-                    rec = self.exec.skip(tid)
-                else:
-                    return 404, {"error": f"unknown action {action}"}
-                return 200, {"task": record_json(rec), "counts": self.counts()}
+                ex = self.exec
+                try:
+                    if action == "approve":
+                        rec = ex.approve(tid, body.get("order"), body.get("steps"), send=bool(body.get("send")),
+                                         force=bool(body.get("force")))
+                    elif action == "send":
+                        rec = ex.send(tid, body["step"], body.get("draft"), force=bool(body.get("force")))
+                    elif action == "discard":
+                        rec = ex.discard(tid, body["step"])
+                    elif action == "skip":
+                        rec = ex.skip(tid)
+                    elif action == "snooze":
+                        rec = ex.snooze(tid, float(body.get("days", 1)), why="snoozed by you")
+                    elif action == "outcome":
+                        rec = ex.outcome(tid, body["outcome"])
+                    elif action == "ignore":
+                        rec = ex.ignore(tid)
+                    elif action == "retry":
+                        rec = ex.retry_crm(tid, body["step"])
+                    else:
+                        return 404, {"error": f"unknown action {action}"}
+                except Conflict as c:
+                    return 409, {"conflict": c.reasons, "task": record_json(self.store.get(tid), self.s),
+                                 "counts": self.counts()}
+                return 200, {"task": record_json(rec, self.s), "counts": self.counts()}
         return 404, {"error": "not found"}
 
 
@@ -97,8 +145,8 @@ def make_handler(app: App):
                 body = json.loads(self.rfile.read(n) or b"{}")
             try:
                 code, payload = app.handle(method, self.path, body)
-            except (KeyError, ValueError, StopIteration) as e:
-                code, payload = 400, {"error": str(e) or type(e).__name__}
+            except (KeyError, ValueError) as e:
+                code, payload = 400, {"error": str(e).strip("'") or type(e).__name__}
             except Exception as e:  # surface, don't crash the server
                 log.exception("request failed")
                 code, payload = 500, {"error": str(e)}
@@ -117,8 +165,17 @@ def make_handler(app: App):
     return Handler
 
 
-def serve(app: App, port: int = 8765) -> None:
+def serve(app: App, port: int = 8765, scan_every_min: int = 0) -> None:
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
+    if scan_every_min and app.scanner:
+        def loop():
+            while True:
+                try:
+                    app.scan()
+                except Exception:
+                    log.exception("background scan failed")
+                time.sleep(scan_every_min * 60)
+        threading.Thread(target=loop, daemon=True).start()
     print(f"Dashboard: http://127.0.0.1:{port}  ({'DEMO data' if app.demo else 'live'}; Ctrl+C to stop)")
     try:
         srv.serve_forever()

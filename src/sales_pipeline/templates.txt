@@ -1,0 +1,108 @@
+# Sales Desk email templates
+# ---------------------------------------------------------------------------
+# Each template starts with a line:   === key | label ===
+# Change the wording freely, but keep the {placeholders}:
+#   {greeting}       "Hi Robin," (or "Hello," when the name is unknown)
+#   {sender_name}    SENDER_NAME in .env       {sender_phone}  SENDER_PHONE in .env
+#   {signature}      EMAIL_SIGNATURE in .env
+#   {about_topic}    " about Liposome Formulation" (empty when unknown)
+#   {order_code} {total} {items} {company} {customer_email} ...  (order emails)
+#
+# Follow-ups are numbered 1-4 and each one pushes harder than the one before:
+#   1 did you receive it?  ->  2 had a chance to review?  ->
+#   3 has a decision been made? / still interested?  ->  4 courtesy reply, last check
+# A stage may have alternatives (followup_2, followup_2b ...). The first is the
+# default; the others can be picked in the dashboard. followup_3_quote is used
+# when a quote was sent, followup_3_service otherwise. Follow-ups are sent as a
+# reply in the same thread, with your previous email quoted underneath.
+
+=== first_reply | First reply (same day) ===
+{greeting}
+
+Thank you for your inquiry{about_topic}. This is {sender_name} from Creative Biostructure, and I will be your point of contact.
+
+To prepare an accurate quote, could you please share a few more details?
+- sample type and amount
+- number of samples or conditions
+- your expected timeline
+
+We are happy to sign an NDA before you share any confidential information. If you have any questions, please do not hesitate to contact me at {sender_phone} or by email.
+
+{signature}
+
+=== followup_1 | Follow-up 1: did you receive it? (gentle) ===
+{greeting}
+
+This is {sender_name}. I am writing to check whether you have received our previous email below. If you have any questions or need any help, please do not hesitate to contact me at {sender_phone} or by email.
+
+{signature}
+
+=== followup_2 | Follow-up 2: had a chance to review? (friendly nudge) ===
+{greeting}
+
+Hope you are doing well! I am writing to check if you have had a chance to review the email below. If there is anything we can help with, please feel free to let me know!
+
+{signature}
+
+=== followup_2b | Follow-up 2: anything we can help with? (softer) ===
+{greeting}
+
+How are you doing? I am writing to check if there is anything we can help with. If you have any questions, please let me know!
+
+{signature}
+
+=== followup_3_quote | Follow-up 3: has a decision been made on the quote? (firm) ===
+{greeting}
+
+How are you doing? I am writing to check whether a decision has been made on this quote. If you need any help, please feel free to contact me at {sender_phone} or by email. Looking forward to your reply!
+
+{signature}
+
+=== followup_3_service | Follow-up 3: still interested? (firm) ===
+{greeting}
+
+How are you doing? I just wanted to check if you are still interested in this service. If there is anything we can help with, please let us know!
+
+{signature}
+
+=== followup_4 | Follow-up 4: last check, asks for a courtesy reply (final) ===
+{greeting}
+
+This is {sender_name}. I am wondering if you are still interested in this service. If you have purchased it from another vendor or changed direction, please give us a courtesy reply so we can close this request and stop further follow-ups. If there is anything we can help with, please feel free to contact me. Thanks!
+
+{signature}
+
+=== reply | Reply to the customer ===
+{greeting}
+
+[write your reply here]
+
+{signature}
+
+=== decline_reply | Customer is going elsewhere: thank them ===
+{greeting}
+
+Thank you for letting us know, and I completely understand. If anything changes or you run into any bottlenecks, please feel free to reach out at any time. We would be glad to help.
+
+{signature}
+
+=== order_confirmation | Order confirmation ===
+{greeting}
+
+Thank you for your order {order_code} ({items}). The order total is {total}.
+
+{prepay_line}We will keep you updated on progress and timelines. If you have any questions, please feel free to contact me at {sender_phone} or by email.
+
+{signature}
+
+=== accounting_invoice | Invoice request to accounting ===
+Hi,
+
+Order_{order_code}: 麻烦{invoice_cn} {total}
+Please issue {invoice_kind} for this order.
+
+Customer: {customer_line}
+Items: {items}
+{po_line}{terms_line}
+Thanks,
+{sender_name}

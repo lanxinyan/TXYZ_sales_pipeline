@@ -9,78 +9,109 @@
   --bg:#f6f7f9; --panel:#fff; --ink:#1b1f24; --muted:#5f6b7a; --line:#e3e6ea; --hover:#f0f3f7; --sel:#e8f0fe;
   --accent:#1a5fd6; --accent-ink:#fff; --high:#c62828; --high-bg:#fdecea; --med:#a15c00; --med-bg:#fff4e0;
   --low:#3d6b4f; --low-bg:#e8f3ec; --warn-bg:#fff8e6; --warn-line:#f0d58a; --gate-bg:#f5f1ff; --gate-line:#cfc2f5;
-  --ok:#2e7d32;
+  --ok:#2e7d32; --bad-bg:#fdecea; --bad-line:#f3b8b2; --col-bg:#eef6ff; --col-line:#bcd7f5;
 }
 @media (prefers-color-scheme: dark){
-  :root{--bg:#111418; --panel:#181c21; --ink:#e6e9ed; --muted:#97a1ad; --line:#2a3038; --hover:#1f252c; --sel:#1d2a3f;
+  :root:not([data-theme="light"]){--bg:#111418; --panel:#181c21; --ink:#e6e9ed; --muted:#97a1ad; --line:#2a3038; --hover:#1f252c; --sel:#1d2a3f;
     --accent:#6ea0ff; --accent-ink:#0b1220; --high:#ff8a80; --high-bg:#3a1f1f; --med:#ffc46b; --med-bg:#3a2d15;
-    --low:#8fd1a6; --low-bg:#183025; --warn-bg:#2f2814; --warn-line:#5c4a1c; --gate-bg:#231d36; --gate-line:#43386b; --ok:#8fd1a6;}
+    --low:#8fd1a6; --low-bg:#183025; --warn-bg:#2f2814; --warn-line:#5c4a1c; --gate-bg:#231d36; --gate-line:#43386b; --ok:#8fd1a6;
+    --bad-bg:#3a1f1f; --bad-line:#6b2f2a; --col-bg:#16243a; --col-line:#2c4a73;}
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif}
-header{display:flex;align-items:center;gap:16px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:2}
-h1{font-size:16px;margin:0;font-weight:650}
-.tabs{display:flex;gap:4px}
-.tab{border:0;background:none;color:var(--muted);padding:6px 10px;border-radius:6px;cursor:pointer;font:inherit}
+header{display:flex;align-items:center;gap:14px;padding:10px 20px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:3}
+h1{font-size:16px;margin:0;font-weight:650;white-space:nowrap}
+.tabs{display:flex;gap:2px;overflow-x:auto}
+.tab{border:0;background:none;color:var(--muted);padding:6px 10px;border-radius:6px;cursor:pointer;font:inherit;white-space:nowrap}
 .tab.on{background:var(--sel);color:var(--ink);font-weight:600}
 .tab b{font-weight:600;margin-left:4px}
 .spacer{flex:1}
-.badge{font-size:11px;padding:2px 8px;border-radius:99px;background:var(--med-bg);color:var(--med);font-weight:600}
-button.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:7px;cursor:pointer}
+.badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600;white-space:nowrap}
+.badge.demo{background:var(--med-bg);color:var(--med)} .badge.off{background:var(--bad-bg);color:var(--high)}
+button.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
 button.btn:hover{background:var(--hover)}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button.primary:hover{filter:brightness(1.08);background:var(--accent)}
+button.small{padding:3px 9px;font-size:12.5px}
 button:disabled{opacity:.5;cursor:default}
 kbd{font:11px ui-monospace,monospace;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;margin-left:6px;opacity:.8}
-main{display:grid;grid-template-columns:minmax(300px,420px) 1fr;height:calc(100vh - 53px)}
+main{display:grid;grid-template-columns:minmax(300px,430px) 1fr;height:calc(100vh - 53px)}
 #list{overflow:auto;border-right:1px solid var(--line);background:var(--panel)}
 .row{padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer;display:grid;grid-template-columns:auto 1fr auto;gap:2px 10px}
 .row:hover{background:var(--hover)} .row.sel{background:var(--sel)}
 .pill{grid-row:span 2;align-self:start;margin-top:2px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.03em}
 .high{background:var(--high-bg);color:var(--high)} .medium{background:var(--med-bg);color:var(--med)} .low{background:var(--low-bg);color:var(--low)}
 .row .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.row .amt{font-variant-numeric:tabular-nums;font-weight:600}
+.row .amt{font-variant-numeric:tabular-nums;font-weight:600;white-space:nowrap}
 .row .why{grid-column:2/4;color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .empty{padding:40px 20px;color:var(--muted);text-align:center}
-#detail{overflow:auto;padding:20px 28px 90px}
+#detail{overflow:auto;padding:20px 28px 100px}
 .dh{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .dh h2{margin:0;font-size:20px}
-.sub{color:var(--muted);margin:4px 0 14px}
+.sub{color:var(--muted);margin:4px 0 12px}
 .sub a{color:var(--accent)}
-.tag{font-size:11px;padding:2px 7px;border-radius:5px;background:var(--hover);color:var(--muted);font-weight:600}
-.callout{background:var(--warn-bg);border:1px solid var(--warn-line);border-radius:8px;padding:10px 14px;margin:10px 0}
+.tag{font-size:11px;padding:2px 7px;border-radius:5px;background:var(--hover);color:var(--muted);font-weight:600;white-space:nowrap}
+.tag.act{background:var(--sel);color:var(--accent)}
+.callout{border-radius:8px;padding:10px 14px;margin:10px 0;background:var(--warn-bg);border:1px solid var(--warn-line)}
+.callout.bad{background:var(--bad-bg);border-color:var(--bad-line)}
+.callout.col{background:var(--col-bg);border-color:var(--col-line)}
 .callout ul{margin:4px 0 0 18px;padding:0}
+.outcomes{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.outcomes .lbl{color:var(--muted);font-size:12.5px;margin-right:2px}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;margin:14px 0}
-section h3{margin:0 0 10px;font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+section h3{margin:0 0 10px;font-size:12.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.tl{display:grid;grid-template-columns:62px 130px 1fr;gap:4px 10px;font-size:13px}
+.tl .when{color:var(--muted);font-variant-numeric:tabular-nums}
+.tl .who{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tl .txt{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.k{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:4px;margin-right:6px;text-transform:uppercase;letter-spacing:.03em}
+.k.customer,.k.forwarded_inquiry{background:var(--low-bg);color:var(--low)} .k.you_replied{background:var(--sel);color:var(--accent)}
+.k.colleague_replied,.k.crm,.k.accounting{background:var(--col-bg);color:var(--accent)} .k.hold{background:var(--med-bg);color:var(--med)}
+.k.note{background:var(--hover);color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px 14px}
 label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
-input,textarea{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
-textarea{min-height:150px;resize:vertical;font-size:13.5px}
-input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+input,textarea,select{font:inherit;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%}
+textarea{min-height:170px;resize:vertical;font-size:13.5px}
+input:focus,textarea:focus,select:focus{outline:2px solid var(--accent);outline-offset:-1px}
 table{width:100%;border-collapse:collapse;margin-top:10px}
 th{font-size:12px;color:var(--muted);text-align:left;font-weight:600;padding:4px 6px}
 td{padding:3px 4px} td.num input{text-align:right}
-.step{display:grid;grid-template-columns:22px 1fr auto;gap:4px 10px;align-items:start;padding:8px 0;border-top:1px solid var(--line)}
-.step:first-of-type{border-top:0}
+.step{display:grid;grid-template-columns:22px 1fr auto;gap:4px 10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.step:first-of-type{border-top:0;padding-top:2px}
 .step input[type=checkbox]{width:16px;height:16px;margin-top:2px}
 .step .d{color:var(--muted);font-size:12.5px}
-.st{font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--hover);color:var(--muted);text-transform:uppercase}
+.full{grid-column:2/4}
+.st{font-size:11px;font-weight:700;padding:2px 7px;border-radius:5px;background:var(--hover);color:var(--muted);text-transform:uppercase;white-space:nowrap}
 .st.done,.st.sent{background:var(--low-bg);color:var(--ok)} .st.failed{background:var(--high-bg);color:var(--high)}
 .st.drafted{background:var(--gate-bg);color:var(--accent)}
 .gate{background:var(--gate-bg);border-color:var(--gate-line)}
-.gate .draft{grid-column:2/4;display:grid;gap:6px;margin-top:6px}
-.gate .acts{grid-column:2/4;display:flex;gap:8px;margin-top:4px}
-.err{color:var(--high);font-size:12.5px;grid-column:2/4}
-.bar{position:fixed;bottom:0;right:0;left:min(420px,40vw);display:flex;gap:10px;align-items:center;padding:12px 28px;background:var(--panel);border-top:1px solid var(--line)}
+.draft{display:grid;gap:6px;margin-top:6px}
+.draft .two{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.quote{font-size:12px;color:var(--muted);border-left:3px solid var(--line);padding:2px 8px;white-space:pre-wrap;max-height:90px;overflow:auto}
+.acts{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}
+.ev{font-size:12.5px;margin-top:4px;color:var(--ink)}
+.ev li{margin:2px 0}
+.err{color:var(--high);font-size:12.5px}
+.okline{color:var(--ok);font-size:12.5px}
+.bar{position:fixed;bottom:0;right:0;left:min(430px,40vw);display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 28px;background:var(--panel);border-top:1px solid var(--line)}
 .bar .hint{color:var(--muted);font-size:12.5px}
-#toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:80vw}
+.act-row{padding:9px 16px;border-bottom:1px solid var(--line);font-size:13px}
+.act-row .when{color:var(--muted);font-size:12px}
+#toast{position:fixed;bottom:76px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:80vw;z-index:9}
 #toast.on{opacity:.95}
+dialog{border:1px solid var(--line);border-radius:12px;background:var(--panel);color:var(--ink);max-width:560px;width:calc(100vw - 32px);padding:18px 20px}
+dialog::backdrop{background:rgba(0,0,0,.35)}
+dialog h4{margin:0 0 8px;font-size:15px}
+dialog ul{margin:6px 0 14px 18px;padding:0}
+dialog .acts{justify-content:flex-end}
 @media (max-width:760px){
   main{grid-template-columns:1fr;height:auto}
-  #list{max-height:40vh;border-right:0;border-bottom:1px solid var(--line)}
-  #detail{padding:16px 16px 100px}
+  #list{max-height:42vh;border-right:0;border-bottom:1px solid var(--line)}
+  #detail{padding:16px 16px 140px}
   .bar{left:0;padding:10px 16px}
   header{flex-wrap:wrap;padding:10px 16px}
+  .tl{grid-template-columns:52px 1fr}.tl .txt{grid-column:1/3;white-space:normal}
+  .draft .two{grid-template-columns:1fr}
   kbd{display:none}
 }
 </style>
@@ -90,7 +121,7 @@ td{padding:3px 4px} td.num input{text-align:right}
   <h1>Sales Desk</h1>
   <nav class="tabs" id="tabs"></nav>
   <span class="spacer"></span>
-  <span class="badge" id="demo" hidden>DEMO DATA</span>
+  <span id="chips"></span>
   <button class="btn" id="scan">Scan Gmail</button>
 </header>
 <main>
@@ -98,134 +129,200 @@ td{padding:3px 4px} td.num input{text-align:right}
   <div id="detail"><div class="empty">Nothing selected.</div></div>
 </main>
 <div id="toast"></div>
+<dialog id="conflict"><h4>Before sending, I checked again and found:</h4><ul id="conflict-list"></ul>
+  <div class="acts"><button class="btn" id="c-cancel">Don't send (keep as draft)</button><button class="btn primary" id="c-force">Send anyway</button></div></dialog>
 <script>
-const VIEWS=[["todo","To decide"],["send","Waiting to send"],["done","Done"],["skipped","Skipped"]];
-let view="todo", tasks=[], counts={}, sel=0;
+const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["send","Waiting to send"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
+const KIND={customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
+let view="todo", tasks=[], counts={}, sel=0, info={tags:{}};
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const money=n=>n==null?"":"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:2});
-function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),2600)}
+const money=n=>n==null?"":"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:0});
+const day=iso=>{if(!iso)return"";const d=new Date(iso);return d.toLocaleDateString(undefined,{month:"short",day:"numeric"})};
+const when=iso=>{if(!iso)return"";const d=new Date(iso),n=new Date();const h=(d-n)/36e5;
+  if(Math.abs(h)<20)return h>=0?`in ${Math.round(h)}h`:`${Math.round(-h)}h ago`;return d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})};
+function toast(m){const t=$("#toast");t.textContent=m;t.classList.add("on");clearTimeout(t._h);t._h=setTimeout(()=>t.classList.remove("on"),3200)}
 async function api(path,body){
   const r=await fetch("/api/"+path,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{});
-  const j=await r.json(); if(!r.ok) throw new Error(j.error||r.statusText); return j;
+  const j=await r.json(); if(r.status===409){const e=new Error("conflict");e.conflict=j;throw e}
+  if(!r.ok) throw new Error(j.error||r.statusText); return j;
 }
 async function load(keep){
-  const id=tasks[sel]?.id; const j=await api("tasks?view="+view);
-  tasks=j.tasks; counts=j.counts; $("#demo").hidden=!j.demo;
+  const id=tasks[sel]?.id;
+  const j=await api(view==="activity"?"activity":"tasks?view="+view);
+  counts=j.counts; info=j; tasks=view==="activity"?[]:j.tasks; window._activity=j.activity||[];
   sel=keep&&id?Math.max(0,tasks.findIndex(t=>t.id===id)):0; if(sel<0)sel=0;
   render();
 }
-function renderTabs(){
-  $("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab ${k===view?"on":""}" data-v="${k}">${l}<b>${counts[k]??0}</b></button>`).join("");
+function renderHeader(){
+  $("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab ${k===view?"on":""}" data-v="${k}">${l}${k in counts&&k!=="activity"?`<b>${counts[k]}</b>`:""}</button>`).join("");
   document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{view=b.dataset.v;load()});
+  $("#chips").innerHTML=(info.demo?`<span class="badge demo">DEMO DATA</span> `:"")+(!info.zoho?`<span class="badge off">Zoho not connected</span>`:"");
+}
+function rowWhy(t){
+  if(view==="upcoming")return `${t.action||""} due ${when(t.due_at)}`+(t.reasons.length?" · "+t.reasons.join(" · "):"");
+  const r=[...t.reasons]; if(t.issues.length)r.push(t.issues[0]); return r.join(" · ")||t.subject;
 }
 function renderList(){
-  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${view==="todo"?"All clear. Nothing waiting for a decision.":"Nothing here."}</div>`;return}
-  $("#list").innerHTML=tasks.map((t,i)=>{
-    const o=t.order||{}; const kind=t.kind==="quote_request"?"Quote request":(o.order_code||"Order");
-    const why=[...t.reasons, ...(t.issues.length&&!t.reasons.some(r=>r.includes("check"))?[t.issues[0]]:[])].join(" · ")||t.subject;
-    return `<div class="row ${i===sel?"sel":""}" data-i="${i}">
-      <span class="pill ${t.level}">${t.level}</span>
-      <span class="t">${esc(t.title||t.subject)} <span class="tag">${esc(kind)}</span></span>
-      <span class="amt">${money(o.total)}</span>
-      <span class="why">${esc(why)}</span></div>`}).join("");
+  if(view==="activity"){
+    const a=window._activity; $("#list").innerHTML=a.length?a.map(x=>`<div class="act-row"><div class="when">${esc(new Date(x.ts).toLocaleString())}</div>${esc(x.text)}</div>`).join(""):`<div class="empty">Nothing yet. Everything Sales Desk does on its own is listed here.</div>`;return}
+  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${{todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",send:"No drafts waiting."}[view]||"Nothing here."}</div>`;return}
+  $("#list").innerHTML=tasks.map((t,i)=>{const o=t.order||{};
+    return `<div class="row ${i===sel?"sel":""}" data-i="${i}"><span class="pill ${t.level}">${t.level}</span>
+      <span class="t">${esc(t.title||t.subject)} ${t.action?`<span class="tag act">${esc(t.action)}</span>`:""}</span>
+      <span class="amt">${t.kind==="order"?money(o.total):(view==="upcoming"?esc(day(t.due_at)):"")}</span>
+      <span class="why">${esc(rowWhy(t))}</span></div>`}).join("");
   document.querySelectorAll(".row").forEach(r=>r.onclick=()=>{sel=+r.dataset.i;render()});
   document.querySelector(".row.sel")?.scrollIntoView({block:"nearest"});
 }
 function field(k,label,val,type="text"){return `<label class="f">${label}<input data-k="${k}" type="${type}" value="${esc(val??"")}"></label>`}
+function timeline(c){
+  if(!c||!c.events?.length)return"";
+  const ev=c.events.slice(-8);
+  return `<section><h3>Conversation</h3><div class="tl">${ev.map(e=>`<span class="when">${esc(day(e.at))}</span><span class="who">${esc(e.who)}</span>
+    <span class="txt"><span class="k ${esc(e.kind)}">${esc(KIND[e.kind]||e.kind)}</span>${esc(e.text)}</span>`).join("")}</div></section>`;
+}
 function stepHtml(s,t){
-  const editable=s.state==="pending"||s.state==="failed";
-  const dis=editable&&view==="todo"?"":"disabled";
-  const state=`<span class="st ${s.state}">${s.state==="pending"?(s.gated?"will draft":"will run"):s.state}</span>`;
-  let h=`<div class="step" data-step="${s.id}"><input type="checkbox" ${s.enabled?"checked":""} ${dis}>
-    <div><div>${esc(s.title)}</div>${s.detail?`<div class="d">${esc(s.detail)}</div>`:""}</div>${state}`;
+  const editable=(s.state==="pending"||s.state==="failed")&&(view==="todo"||view==="upcoming");
+  const label={pending:s.gated?"needs your OK":"will run",drafted:"draft ready",sent:"sent",done:"done",skipped:"skipped",failed:"failed"}[s.state]||s.state;
+  let h=`<div class="step" data-step="${esc(s.id)}"><input type="checkbox" ${s.enabled?"checked":""} ${editable?"":"disabled"}>
+    <div><div>${esc(s.title)}</div>${s.detail?`<div class="d">${esc(s.detail)}</div>`:""}</div><span class="st ${s.state}">${label}</span>`;
+  if(s.evidence?.length)h+=`<div class="full callout col" style="margin:6px 0 0"><b>What colleagues already did</b><ul class="ev">${s.evidence.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`;
   if(s.gated&&s.draft){
     const ro=(s.state==="sent"||s.state==="skipped")?"readonly":"";
-    h+=`<div class="draft"><input data-d="to" value="${esc(s.draft.to)}" ${ro} placeholder="To">
-        <input data-d="subject" value="${esc(s.draft.subject)}" ${ro}>
-        <textarea data-d="body" ${ro}>${esc(s.draft.body)}</textarea></div>`;
-    if(s.state==="drafted"||(s.state==="failed"&&t.status!=="needs_review"&&s.draft_id))
-      h+=`<div class="acts"><button class="btn primary" data-act="send">Send now</button><button class="btn" data-act="discard">Discard</button>
-          <span class="d">Saved as a Gmail draft. Nothing is sent until you press Send.</span></div>`;
+    const v=s.draft.variants||[];
+    h+=`<div class="full draft">${v.length>1&&ro===""?`<select data-variant>${v.map(x=>`<option value="${esc(x.key)}" ${x.key===s.draft.template?"selected":""}>Wording: ${esc(x.label)}</option>`).join("")}</select>`:""}
+      <div class="two"><input data-d="to" value="${esc(s.draft.to)}" ${ro} placeholder="To"><input data-d="cc" value="${esc(s.draft.cc||"")}" ${ro} placeholder="Cc"></div>
+      <input data-d="subject" value="${esc(s.draft.subject)}" ${ro}>
+      <textarea data-d="body" ${ro}>${esc(s.draft.body)}</textarea>
+      ${s.draft.quote?`<div class="quote">Quoted below your text: ${esc(s.draft.quote.sender)}, ${esc(s.draft.quote.date_label)}\n${esc((s.draft.quote.body||"").slice(0,400))}</div>`:""}</div>`;
+    if(s.conflicts?.length)h+=`<div class="full callout bad"><b>Not sent: I found new activity</b><ul class="ev">${s.conflicts.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>
+      <div class="acts"><button class="btn small" data-act="force">Send anyway</button><button class="btn small" data-act="discard">Cancel this email</button></div></div>`;
+    else if(s.state==="drafted")h+=`<div class="full acts"><button class="btn primary small" data-act="send">Send now</button><button class="btn small" data-act="discard">Discard</button>
+      <span class="d">Saved as a Gmail draft. It is checked again right before sending.</span></div>`;
   }
-  if(s.result&&s.state!=="pending")h+=`<div class="${s.state==="failed"?"err":"d"}" style="grid-column:2/4">${esc(s.result)}</div>`;
+  if(s.crm)h+=`<div class="full ${s.crm.startsWith("Recorded")?"okline":"err"}">${esc(s.crm)}${s.crm.startsWith("Recorded")?"":` <button class="btn small" data-act="retry">Retry</button>`}</div>`;
+  if(s.result&&s.state!=="pending")h+=`<div class="full ${s.state==="failed"?"err":"d"}">${esc(s.result)}</div>`;
   return h+"</div>";
 }
+function outcomesHtml(t){
+  if(t.kind==="order"||!(view==="todo"||view==="upcoming"))return"";
+  const tg=info.tags||{};const b=[];
+  if(tg.ordered)b.push(`<button class="btn small" data-out="ordered">${esc(tg.ordered)}</button>`);
+  if(tg.lost)b.push(`<button class="btn small" data-out="lost">${esc(tg.lost)}</button>`);
+  if(tg.no_response)b.push(`<button class="btn small" data-out="no_response">${esc(tg.no_response)}</button>`);
+  return `<div class="outcomes"><span class="lbl">Outcome:</span>${b.join("")}
+    <span class="lbl" style="margin-left:8px">Later:</span><button class="btn small" data-snooze="1">1 day</button><button class="btn small" data-snooze="3">3 days</button><button class="btn small" data-snooze="7">1 week</button>
+    <button class="btn small" data-ignore title="Vendor or not a sales contact: never suggest follow-ups for this domain">Not a customer</button></div>`;
+}
 function renderDetail(){
-  const t=tasks[sel]; const d=$("#detail");
-  if(!t){d.innerHTML=`<div class="empty">Nothing selected.</div>`;$(".bar")?.remove();return}
-  const o=t.order||{customer:{},items:[]}; const c=o.customer||{};
+  const d=$("#detail"); $(".bar")?.remove();
+  if(view==="activity"){d.innerHTML=`<div class="empty">Activity shows what Sales Desk did on its own: Zoho notes and tags, Gmail replies it recorded, snoozes.</div>`;return}
+  const t=tasks[sel];
+  if(!t){d.innerHTML=`<div class="empty">Nothing selected.</div>`;return}
+  const o=t.order||{customer:{},items:[]}; const c=o.customer||{}; const cv=t.conv||{};
   const routine=t.plan.filter(s=>!s.gated), gated=t.plan.filter(s=>s.gated);
   const ro=view!=="todo"?"disabled":"";
+  const sig=(cv.signals||[]).filter(x=>x.kind==="declined"||x.kind==="wants_to_order");
   d.innerHTML=`
    <div class="dh"><h2>${esc(t.title||t.subject)}</h2><span class="pill ${t.level}" style="grid-row:auto">${t.level} · ${t.priority}</span>
-     <span class="tag">${t.kind==="quote_request"?"Quote request":"Order"}</span><span class="tag">${esc(t.status.replace("_"," "))}</span></div>
-   <div class="sub">${esc(t.subject)} · <a href="${esc(t.url)}" target="_blank" rel="noopener">Open in Gmail</a>${t.zoho_id?` · Zoho ${esc(t.zoho_id)}`:""}</div>
-   ${t.issues.length?`<div class="callout"><b>Check before approving</b><ul>${t.issues.map(i=>`<li>${esc(i)}</li>`).join("")}</ul></div>`:""}
-   ${t.error?`<div class="callout"><b>Last error</b><div>${esc(t.error)}</div></div>`:""}
-   <section id="ord"><h3>${t.kind==="order"?"Order":"Customer"}</h3><fieldset ${ro} style="border:0;padding:0;margin:0"><div class="grid">
+     ${t.action?`<span class="tag act">${esc(t.action)}</span>`:""}<span class="tag">${esc(t.status.replace("_"," "))}</span></div>
+   <div class="sub">${esc(t.subject)} · <a href="${esc(t.url)}" target="_blank" rel="noopener">Open in Gmail</a>${t.zoho_id?` · Zoho ${esc(t.zoho_id)}`:""}${t.due_at?` · due ${esc(when(t.due_at))}`:""}</div>
+   ${sig.map(x=>`<div class="callout ${x.kind==="declined"?"bad":"col"}"><b>${x.kind==="declined"?"The customer seems to be going elsewhere":"The customer seems ready to order"}</b><div>“${esc(x.text)}”</div></div>`).join("")}
+   ${t.issues.length?`<div class="callout"><b>Check</b><ul>${t.issues.map(i=>`<li>${esc(i)}</li>`).join("")}</ul></div>`:""}
+   ${t.error?`<div class="callout bad"><b>Last error</b><div>${esc(t.error)}</div></div>`:""}
+   ${outcomesHtml(t)}
+   ${timeline(cv)}
+   ${t.kind==="order"?`<section id="ord"><h3>Order</h3><fieldset ${ro} style="border:0;padding:0;margin:0"><div class="grid">
      ${field("customer.company","Company",c.company)}${field("customer.contact_name","Contact",c.contact_name)}
-     ${field("customer.email","Email",c.email,"email")}
-     ${t.kind==="order"?field("order_code","Order / quote #",o.order_code)+field("po_number","Customer PO #",o.po_number)+
-       field("total","Total (USD)",o.total,"number")+field("payment_terms","Payment terms",o.payment_terms):""}
-   </div>
-   ${t.kind==="order"?`<table><thead><tr><th>Item</th><th style="width:80px">Qty</th><th style="width:130px">Unit price</th></tr></thead><tbody>
+     ${field("customer.email","Email",c.email,"email")}${field("order_code","Order / quote #",o.order_code)}${field("po_number","Customer PO #",o.po_number)}
+     ${field("total","Total (USD)",o.total,"number")}${field("payment_terms","Payment terms",o.payment_terms)}</div>
+     <table><thead><tr><th>Item</th><th style="width:80px">Qty</th><th style="width:130px">Unit price</th></tr></thead><tbody>
      ${(o.items||[]).map((it,i)=>`<tr data-item="${i}"><td><input data-ik="product_name" value="${esc(it.product_name)}"></td>
        <td class="num"><input data-ik="quantity" type="number" value="${esc(it.quantity)}"></td>
-       <td class="num"><input data-ik="unit_price" type="number" value="${esc(it.unit_price)}"></td></tr>`).join("")}
-     </tbody></table>${o.notes?`<div class="d" style="margin-top:8px;color:var(--muted)">Notes: ${esc(o.notes)}</div>`:""}`:""}
-   </fieldset></section>
+       <td class="num"><input data-ik="unit_price" type="number" value="${esc(it.unit_price)}"></td></tr>`).join("")}</tbody></table>
+     ${o.notes?`<div class="d" style="margin-top:8px;color:var(--muted)">Notes: ${esc(o.notes)}</div>`:""}</fieldset></section>`:""}
    ${routine.length?`<section><h3>Runs automatically when you approve</h3>${routine.map(s=>stepHtml(s,t)).join("")}</section>`:""}
-   ${gated.length?`<section class="gate"><h3>Customer-facing: waits for your Send</h3>${gated.map(s=>stepHtml(s,t)).join("")}</section>`:""}`;
-  $(".bar")?.remove();
-  if(view==="todo"){
+   ${gated.length?`<section class="gate"><h3>Emails: sent only with your OK, recorded in Zoho as a follow-up</h3>${gated.map(s=>stepHtml(s,t)).join("")}</section>`:""}`;
+  if(view==="todo"||view==="upcoming"){
     const bar=document.createElement("div");bar.className="bar";
-    bar.innerHTML=`<button class="btn primary" id="approve">Approve plan<kbd>A</kbd></button><button class="btn" id="skip">Skip<kbd>S</kbd></button>
-      <span class="hint">Routine steps run now; replies become Gmail drafts for you to send. <kbd>J</kbd><kbd>K</kbd> to move</span>`;
-    document.body.appendChild(bar); $("#approve").onclick=approve; $("#skip").onclick=skip;
+    bar.innerHTML=view==="todo"?`<button class="btn primary" id="go-send">Approve &amp; send<kbd>E</kbd></button><button class="btn" id="go">Approve, keep drafts<kbd>A</kbd></button><button class="btn" id="skip">Skip<kbd>S</kbd></button>
+      <span class="hint">Routine steps run; emails are checked again for colleague activity before they go. <kbd>J</kbd><kbd>K</kbd> move</span>`
+      :`<button class="btn" id="go-send">Send the follow-up now (early)</button><span class="hint">Otherwise it moves to To decide on ${esc(day(t.due_at))}.</span>`;
+    document.body.appendChild(bar);
+    $("#go-send").onclick=()=>approve(true); $("#go")&&($("#go").onclick=()=>approve(false)); $("#skip")&&($("#skip").onclick=skip);
   }
   d.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>stepAction(b.closest(".step").dataset.step,b.dataset.act));
+  d.querySelectorAll("[data-out]").forEach(b=>b.onclick=()=>outcome(b.dataset.out,b.textContent));
+  d.querySelectorAll("[data-snooze]").forEach(b=>b.onclick=()=>snooze(+b.dataset.snooze));
+  d.querySelector("[data-ignore]")?.addEventListener("click",ignore);
+  d.querySelectorAll("[data-variant]").forEach(sel=>sel.onchange=()=>{
+    const st=t.plan.find(s=>s.id===sel.closest(".step").dataset.step);const v=st.draft.variants.find(x=>x.key===sel.value);
+    const ta=sel.closest(".step").querySelector("textarea");if(v)ta.value=v.body});
 }
-function render(){renderTabs();renderList();renderDetail()}
+function render(){renderHeader();renderList();renderDetail()}
 function collect(){
-  const t=tasks[sel]; const o=structuredClone(t.order);
-  document.querySelectorAll("#ord [data-k]").forEach(i=>{
+  const t=tasks[sel]; const o=t.order?structuredClone(t.order):null;
+  if(o){document.querySelectorAll("#ord [data-k]").forEach(i=>{
     const path=i.dataset.k.split("."); let tgt=o; while(path.length>1)tgt=tgt[path.shift()];
-    let v=i.value.trim(); if(i.type==="number")v=v===""?null:Number(v); else if(v==="")v=null; tgt[path[0]]=v;
-  });
+    let v=i.value.trim(); if(i.type==="number")v=v===""?null:Number(v); else if(v==="")v=null; tgt[path[0]]=v;});
   document.querySelectorAll("#ord [data-item]").forEach(r=>{const it=o.items[+r.dataset.item];
-    r.querySelectorAll("[data-ik]").forEach(i=>{it[i.dataset.ik]=i.type==="number"?(i.value===""?null:Number(i.value)):i.value})});
+    r.querySelectorAll("[data-ik]").forEach(i=>{it[i.dataset.ik]=i.type==="number"?(i.value===""?null:Number(i.value)):i.value})});}
   const steps={};
   document.querySelectorAll(".step").forEach(el=>{
     const s={enabled:el.querySelector("input[type=checkbox]").checked};
     if(el.querySelector("[data-d]")){s.draft={};el.querySelectorAll("[data-d]").forEach(i=>s.draft[i.dataset.d]=i.value)}
     steps[el.dataset.step]=s;
   });
-  return {order:o,steps};
+  return {order:t.kind==="order"?o:null,steps};
 }
-async function approve(){
-  const t=tasks[sel]; if(!t)return; const btn=$("#approve"); btn.disabled=true;
-  try{const j=await api(`tasks/${t.id}/approve`,collect());
-    const st=j.task.status; toast(st==="awaiting_send"?"Done. Drafts are waiting in “Waiting to send”.":st==="failed"?"Some steps failed. See the item.":"Done.");
+function draftOf(step){const el=document.querySelector(`.step[data-step="${step}"]`);const d={};el?.querySelectorAll("[data-d]").forEach(i=>d[i.dataset.d]=i.value);return d}
+function askConflict(reasons){
+  return new Promise(res=>{$("#conflict-list").innerHTML=reasons.map(r=>`<li>${esc(r)}</li>`).join("");const dl=$("#conflict");
+    $("#c-force").onclick=()=>{dl.close();res(true)};$("#c-cancel").onclick=()=>{dl.close();res(false)};dl.showModal()});
+}
+async function approve(send){
+  const t=tasks[sel]; if(!t)return;
+  const body=collect(); const to=Object.values(body.steps).filter(s=>s.enabled&&s.draft).map(s=>s.draft.to);
+  if(send&&to.length&&!confirm(`Send ${to.length} email(s) to:\n${to.join("\n")}?`))return;
+  try{const j=await api(`tasks/${t.id}/approve`,{...body,send});
+    const st=j.task.status;
+    toast(send?(st==="failed"?"Some steps failed. See the item.":"Done. Sent and recorded in Zoho."):(st==="awaiting_send"?"Done. Drafts are in “Waiting to send”.":st==="scheduled"?"Nothing sent. Back tomorrow.":"Done."));
     await load(st==="failed");
-  }catch(e){toast(e.message);btn.disabled=false}
+  }catch(e){
+    if(e.conflict){const go=await askConflict(e.conflict.conflict);
+      const step=(e.conflict.task.plan.find(s=>s.conflicts?.length)||{}).id;
+      if(go&&step){await sendStep(step,true)} else {toast("Kept as a draft in “Waiting to send”.");view="send";await load()}}
+    else toast(e.message)}
 }
-async function skip(){const t=tasks[sel]; if(!t)return; try{await api(`tasks/${t.id}/skip`,{});toast("Skipped.");await load()}catch(e){toast(e.message)}}
+async function sendStep(step,force){
+  const t=tasks[sel];
+  try{await api(`tasks/${t.id}/send`,{step,draft:draftOf(step),force});toast("Sent and recorded in Zoho.");await load()}
+  catch(e){if(e.conflict){if(await askConflict(e.conflict.conflict))return sendStep(step,true);await load(true)}else toast(e.message)}
+}
 async function stepAction(step,act){
-  const t=tasks[sel]; const el=document.querySelector(`.step[data-step="${step}"]`);
-  const draft={};el.querySelectorAll("[data-d]").forEach(i=>draft[i.dataset.d]=i.value);
-  if(act==="send"&&!confirm(`Send to ${draft.to}?`))return;
-  try{const j=await api(`tasks/${t.id}/${act}`,{step,draft});toast(act==="send"?"Sent.":"Discarded.");await load(j.task.status==="awaiting_send"||j.task.status==="failed")}catch(e){toast(e.message)}
+  const t=tasks[sel];
+  if(act==="send"){const d=draftOf(step);if(!confirm(`Send to ${d.to}?`))return;return sendStep(step,false)}
+  if(act==="force"){return sendStep(step,true)}
+  try{await api(`tasks/${t.id}/${act==="retry"?"retry":"discard"}`,{step});toast(act==="retry"?"Retried.":"Discarded.");await load(true)}catch(e){toast(e.message)}
 }
+async function skip(){const t=tasks[sel];if(!t)return;try{await api(`tasks/${t.id}/skip`,{});toast("Skipped.");await load()}catch(e){toast(e.message)}}
+async function snooze(days){const t=tasks[sel];if(!t)return;try{await api(`tasks/${t.id}/snooze`,{days});toast(`Snoozed ${days} day(s).`);await load()}catch(e){toast(e.message)}}
+async function outcome(o,label){const t=tasks[sel];if(!t||!confirm(`Tag “${label}” in Zoho and stop follow-ups?`))return;
+  try{await api(`tasks/${t.id}/outcome`,{outcome:o});toast(`Tagged ${label}.`);await load()}catch(e){toast(e.message)}}
+async function ignore(){const t=tasks[sel];if(!t||!confirm("Never suggest follow-ups for this sender's domain?"))return;
+  try{await api(`tasks/${t.id}/ignore`,{});toast("Ignored.");await load()}catch(e){toast(e.message)}}
 $("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="Scanning…";
   try{const j=await api("scan",{});const r=j.result||{};toast("Scan: "+(Object.entries(r).map(([k,v])=>v+" "+k.replace("_"," ")).join(", ")||"nothing new"));await load(true)}
   catch(e){toast(e.message)} b.disabled=false;b.textContent="Scan Gmail"};
 document.addEventListener("keydown",e=>{
-  if(e.target.closest("input,textarea")||e.metaKey||e.ctrlKey)return;
+  if(e.target.closest("input,textarea,select,dialog")||e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==="j"&&sel<tasks.length-1){sel++;render()} else if(e.key==="k"&&sel>0){sel--;render()}
-  else if(e.key==="a"&&view==="todo")approve(); else if(e.key==="s"&&view==="todo")skip();
+  else if(view==="todo"&&e.key==="a")approve(false); else if(view==="todo"&&e.key==="e")approve(true);
+  else if(view==="todo"&&e.key==="s")skip();
 });
 load();
+setInterval(()=>{if(!document.querySelector("textarea:focus,input:focus")&&!$("#conflict").open)load(true)},120000);
 </script>
 </body>
 </html>

@@ -27,6 +27,8 @@ class EmailMessage:
     body: str
     attachments: list[Attachment] = field(default_factory=list)
     message_id: str = ""  # RFC 822 Message-ID header, used to thread replies
+    sender_name: str = ""
+    attachment_names: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -95,6 +97,41 @@ class Order(BaseModel):
     sales_rep: Optional[str] = None
     customer_status: Optional[Literal["new", "existing", "distributor"]] = None
     notes: Optional[str] = Field(None, description="Anything the order processor must know")
+
+
+# ---------- a customer conversation (inquiry -> reply -> follow-ups) ----------
+
+class Conversation(BaseModel):
+    """What the email thread says about where we stand with the customer."""
+    customer_emails: list[str] = Field(default_factory=list)
+    customer_name: Optional[str] = None
+    company: Optional[str] = None
+    phone: Optional[str] = None
+    topic: Optional[str] = None
+    first_inbound_at: Optional[str] = None
+    last_inbound_at: Optional[str] = None
+    last_inbound_text: Optional[str] = None
+    last_inbound_to_me: bool = False
+    # the customer's last email: gmail_id, rfc_id, sender, subject, date, cc (our people on it)
+    last_inbound: Optional[dict] = None
+    inquiry_forward: bool = False   # started as a forwarded website/email inquiry
+    salutation: Optional[dict] = None   # how we last greeted them: {"word": "Dear", "name": "Dr. Okafor"}
+    last_outbound_at: Optional[str] = None
+    last_outbound_by: Optional[str] = None
+    # the email being followed up: gmail_id, rfc_id, sender, to, cc, subject, date, body
+    last_outbound: Optional[dict] = None
+    touches: int = 0              # our emails to the customer since they last wrote
+    replied_ever: bool = False
+    i_participated: bool = False
+    quote_sent: bool = False
+    # reply_needed | awaiting_customer | declined | exhausted | none
+    stage: str = "none"
+    followup_no: int = 0          # the follow-up that is next (1-4)
+    due_at: Optional[str] = None
+    signals: list[dict] = Field(default_factory=list)   # {kind, text}
+    events: list[dict] = Field(default_factory=list)    # timeline {at, who, kind, text}
+    crm_refs: list[dict] = Field(default_factory=list)  # {ref, who, at}
+    newest_message_id: Optional[str] = None
 
 
 ReviewStatus = Literal["needs_review", "ready", "pushed", "failed", "skipped"]

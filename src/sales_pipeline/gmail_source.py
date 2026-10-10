@@ -5,6 +5,7 @@ import base64
 import html
 import os
 import re
+from datetime import datetime, timezone
 from email.utils import getaddresses, parseaddr
 
 from .models import Attachment, EmailMessage, EmailThread
@@ -66,9 +67,14 @@ class GmailSource:
                 break
         return ids
 
-    def get_thread(self, thread_id: str) -> EmailThread:
+    def profile_email(self) -> str:
+        return self.svc.users().getProfile(userId="me").execute()["emailAddress"].lower()
+
+    def get_thread(self, thread_id: str, attachments: bool = True) -> EmailThread:
         raw = self.svc.users().threads().get(userId="me", id=thread_id, format="full").execute()
-        messages = [self._message(m) for m in raw.get("messages", [])]
+        # Unsent drafts (including ones Sales Desk prepared) are not part of the conversation.
+        messages = [self._message(m, attachments) for m in raw.get("messages", [])
+                    if "DRAFT" not in m.get("labelIds", [])]
         return EmailThread(
             id=thread_id,
             subject=messages[0].subject if messages else "",
@@ -76,28 +82,35 @@ class GmailSource:
             url=f"https://mail.google.com/mail/u/0/#all/{thread_id}",
         )
 
-    def _message(self, m: dict) -> EmailMessage:
+    def _message(self, m: dict, attachments: bool = True) -> EmailMessage:
         headers = {h["name"].lower(): h["value"] for h in m["payload"].get("headers", [])}
-        plain, htmls, atts = [], [], []
-        self._walk(m["id"], m["payload"], plain, htmls, atts)
+        plain, htmls, atts, names = [], [], [], []
+        self._walk(m["id"], m["payload"], plain, htmls, atts, names, attachments)
         body = "\n".join(plain) if plain else _html_to_text("\n".join(htmls))
+        sender_name, sender = parseaddr(headers.get("from", ""))
+        date = headers.get("date", "")
+        if m.get("internalDate"):
+            date = datetime.fromtimestamp(int(m["internalDate"]) / 1000, tz=timezone.utc).isoformat()
         return EmailMessage(
             id=m["id"],
-            sender=parseaddr(headers.get("from", ""))[1].lower(),
+            sender=sender.lower(),
+            sender_name=sender_name.strip('" '),
+            attachment_names=names,
             to=[a.lower() for _, a in getaddresses([headers.get("to", "")]) if a],
             cc=[a.lower() for _, a in getaddresses([headers.get("cc", "")]) if a],
             subject=headers.get("subject", ""),
-            date=headers.get("date", ""),
+            date=date,
             body=body,
             attachments=atts,
             message_id=headers.get("message-id", ""),
         )
 
-    def _walk(self, msg_id, part, plain, htmls, atts):
+    def _walk(self, msg_id, part, plain, htmls, atts, names, download=True):
         mime = part.get("mimeType", "")
         body = part.get("body", {})
         if part.get("filename"):
-            if mime == "application/pdf" or part["filename"].lower().endswith(".pdf"):
+            names.append(part["filename"])
+            if download and (mime == "application/pdf" or part["filename"].lower().endswith(".pdf")):
                 data = body.get("data")
                 if not data and body.get("attachmentId"):
                     data = self.svc.users().messages().attachments().get(
@@ -109,7 +122,7 @@ class GmailSource:
         elif mime == "text/html" and body.get("data"):
             htmls.append(_b64(body["data"]).decode("utf-8", "replace"))
         for sub in part.get("parts", []) or []:
-            self._walk(msg_id, sub, plain, htmls, atts)
+            self._walk(msg_id, sub, plain, htmls, atts, names, download)
 
     # ---------- labelling ----------
 
@@ -133,16 +146,25 @@ class GmailSource:
 
     # ---------- drafts (customer-facing replies are gated on these) ----------
 
-    def create_draft(self, thread_id: str, to: str, subject: str, body: str, in_reply_to: str = "") -> str:
+    def create_draft(self, thread_id: str | None, to: list[str] | str, subject: str, body: str,
+                     in_reply_to: str = "", cc: list[str] | str = "", quote: dict | None = None) -> str:
         from email.mime.text import MIMEText
 
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["To"], msg["Subject"] = to, subject
+        from .templates import quote_block
+
+        msg = MIMEText(body.rstrip() + "\n" + quote_block(quote), "plain", "utf-8")
+        msg["To"] = to if isinstance(to, str) else ", ".join(to)
+        cc = cc if isinstance(cc, str) else ", ".join(cc)
+        if cc:
+            msg["Cc"] = cc
+        msg["Subject"] = subject
         if in_reply_to:
             msg["In-Reply-To"] = msg["References"] = in_reply_to
         raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        d = self.svc.users().drafts().create(
-            userId="me", body={"message": {"raw": raw, "threadId": thread_id}}).execute()
+        message = {"raw": raw}
+        if thread_id:
+            message["threadId"] = thread_id
+        d = self.svc.users().drafts().create(userId="me", body={"message": message}).execute()
         return d["id"]
 
     def send_draft(self, draft_id: str) -> str:

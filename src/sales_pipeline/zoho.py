@@ -60,8 +60,11 @@ class ZohoCRM:
     def search(self, module: str, criteria: str) -> list[dict]:
         return self._request("GET", f"{module}/search", params={"criteria": criteria}).get("data", [])
 
-    def create(self, module: str, record: dict) -> str:
-        data = self._request("POST", module, json={"data": [record], "trigger": ["workflow"]})
+    def create(self, module: str, record: dict, trigger: bool = True) -> str:
+        body = {"data": [record]}
+        if trigger:
+            body["trigger"] = ["workflow"]
+        data = self._request("POST", module, json=body)
         result = data["data"][0]
         if result.get("status") != "success":
             raise ZohoError(f"create {module} failed: {result}")
@@ -75,6 +78,39 @@ class ZohoCRM:
     def _esc(value: str) -> str:
         # Zoho criteria need ( ) , escaped
         return value.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)").replace(",", "\\,")
+
+    def get(self, module: str, record_id: str) -> dict:
+        rows = self._request("GET", f"{module}/{record_id}").get("data", [])
+        return rows[0] if rows else {}
+
+    def find_by_email(self, module: str, email: str) -> list[dict]:
+        return self.search(module, f"(Email:equals:{self._esc(email)})")
+
+    # ---------- tags, notes, modules (v8: /{module}/{id}/actions/add_tags etc.) ----------
+
+    def list_tags(self, module: str) -> list[dict]:
+        return self._request("GET", "settings/tags", params={"module": module}).get("tags", [])
+
+    def record_tags(self, module: str, record_id: str) -> list[str]:
+        return [t.get("name", "") for t in (self.get(module, record_id).get("Tag") or [])]
+
+    def add_tags(self, module: str, record_id: str, names: list[str]) -> None:
+        if names:
+            self._request("POST", f"{module}/{record_id}/actions/add_tags",
+                          json={"tags": [{"name": n} for n in names], "over_write": False})
+
+    def remove_tags(self, module: str, record_id: str, names: list[str]) -> None:
+        if names:
+            self._request("POST", f"{module}/{record_id}/actions/remove_tags",
+                          json={"tags": [{"name": n} for n in names]})
+
+    def add_note(self, module: str, record_id: str, title: str, content: str) -> str:
+        note = {"Note_Title": title[:120], "Note_Content": content,
+                "Parent_Id": {"module": {"api_name": module}, "id": record_id}}
+        return self.create("Notes", note, trigger=False)
+
+    def list_modules(self) -> list[dict]:
+        return self._request("GET", "settings/modules").get("modules", [])
 
     # ---------- lookups / creates ----------
 

@@ -13,7 +13,7 @@ class FakeGmail:
     def search(self, q, limit):
         return list(self.threads)
 
-    def get_thread(self, tid):
+    def get_thread(self, tid, attachments=True):
         return self.threads[tid]
 
     def set_label(self, tid, name):

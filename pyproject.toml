@@ -26,7 +26,7 @@ sales-pipeline = "sales_pipeline.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-sales_pipeline = ["ui.html"]
+sales_pipeline = ["ui.html", "templates.txt"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

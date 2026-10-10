@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 
 from .config import Settings
 from .extract_rules import extract as rules_extract
@@ -116,57 +117,206 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gmail=None, zoho: ZohoCRM | None = None,
-                 llm=None):
+                 llm=None, crm=None, templates=None):
+        from .crm import CustomerCRM, load_tag_map
+        from .templates import load as load_templates
+
         self.s, self.store, self.gmail, self.zoho, self.llm = settings, store, gmail, zoho, llm
+        self.crm = crm if crm is not None else (CustomerCRM(zoho, settings) if zoho is not None else None)
+        self.tags = self.crm.tags if self.crm else load_tag_map(settings.zoho_tag_file)
+        self.templates = templates or load_templates(settings.templates_file)
 
-    def process_thread(self, thread: EmailThread) -> str:
-        from .tasks import build_plan, classify, prioritize, waiting_since
+    # ---------- reading one thread ----------
 
-        rules = rules_extract(thread, self.s.order_code_regex, self.s.internal_domains)
-        llm_order = None
-        if self.llm is not None:
+    def process_thread(self, thread: EmailThread, reuse_order: Order | None = None) -> str:
+        from .conversation import analyze, owner_is_me
+
+        s = self.s
+        conv = analyze(thread, s, s.user_email, self.store.ignored_domains())
+        rules = rules_extract(thread, s.order_code_regex, s.internal_domains)
+        if reuse_order is not None:
+            order, notes = reuse_order, []
+        elif self.llm is not None and _may_be_order(thread, rules):
+            llm_order = None
             try:
-                llm_order = self.llm.extract(thread)
+                full = self.gmail.get_thread(thread.id) if self.gmail is not None else thread
+                llm_order = self.llm.extract(full)
             except Exception as e:  # network / API errors - fall back to rules
                 log.warning("Claude extraction failed for %s: %s", thread.id, e)
-        order, notes = merge(llm_order, rules, self.s)
-
-        kind = classify(thread, order, self.s)
-        if kind == "other":
-            status, issues = "skipped", notes
-        elif kind == "quote_request":
-            issues = notes + ([] if order.customer.email else ["customer email unknown"])
-            status = "needs_review"
+            order, notes = merge(llm_order, rules, s)
         else:
-            issues = notes + validate(order)
+            order, notes = merge(None, rules, s)
+            notes = [n for n in notes if not n.startswith("extracted by rules only")]
+
+        from .tasks import classify
+        kind = classify(thread, order, conv, s)
+        issues: list[str] = list(notes)
+        due_at = None
+        if kind == "order":
+            issues += validate(order)
             status = "ready" if not issues else "needs_review"
-        waiting = waiting_since(thread, self.s)
-        priority, reasons = prioritize(kind, order, issues, waiting)
+        elif kind == "quote_request":
+            status, due_at, extra = self._conversation_status(conv)
+            issues += extra
+        else:
+            status = "skipped"
+            if conv.customer_emails and not owner_is_me(conv):
+                issues.append("handled by colleagues (you are only in copy)")
+
+        self._save(thread, kind, order, conv, status, issues, due_at)
+        if kind == "quote_request":
+            self._log_manual_replies(thread, conv)
+        if self.gmail is not None and kind == "order":
+            from .gmail_source import LABEL_REVIEW
+            self.gmail.set_label(thread.id, LABEL_REVIEW)
+        return status
+
+    def _conversation_status(self, conv) -> tuple[str, str | None, list[str]]:
+        from .conversation import owner_is_me, parse_date
+
+        if not owner_is_me(conv):
+            return "skipped", None, ["handled by colleagues (you are only in copy)"]
+        if conv.stage == "none":
+            return "done", None, []
+        if self.crm is not None and conv.customer_emails:
+            try:
+                closed = self.crm.closing_tag(conv.customer_emails[0])
+            except Exception as e:
+                log.warning("Zoho tag check failed: %s", e)
+                closed = None
+            if closed and conv.stage != "reply_needed":
+                # Someone already closed this customer in Zoho: no more follow-ups.
+                return "done", None, [f"closed in Zoho: {closed}"]
+            if closed:
+                return "ready", conv.due_at, [f"customer wrote again but is tagged {closed} in Zoho"]
+        due = parse_date(conv.due_at)
+        if conv.stage in ("awaiting_customer", "exhausted") and due and due > datetime.now(timezone.utc):
+            return "scheduled", conv.due_at, []
+        return "ready", conv.due_at, []
+
+    def _save(self, thread: EmailThread, kind, order, conv, status, issues, due_at) -> None:
+        from .tasks import build_plan, prioritize
+
         previous = self.store.get(thread.id)
-        plan = build_plan(kind, order, thread.subject, self.s, previous.plan if previous else None)
+        priority, reasons = prioritize(kind, order, issues, conv, s=self.s)
+        plan = build_plan(kind, order, conv, thread.subject, self.s, self._context(kind, order, thread),
+                          previous.plan if previous else None)
         self.store.save(thread.id, subject=thread.subject, thread_url=thread.url,
                         message_count=len(thread.messages), status=status, order=order, issues=issues,
-                        kind=kind, priority=priority, reasons=reasons, plan=plan, waiting_since=waiting)
-        if self.gmail is not None:
-            from .gmail_source import LABEL_REVIEW, LABEL_SKIPPED
+                        kind=kind, priority=priority, reasons=reasons, plan=plan,
+                        waiting_since=conv.last_inbound_at if conv.stage == "reply_needed" else None,
+                        conv=conv, due_at=due_at, zoho_id=previous.zoho_id if previous else None)
 
-            self.gmail.set_label(thread.id, LABEL_SKIPPED if status == "skipped" else LABEL_REVIEW)
-        return status
+    def _context(self, kind: str, order: Order, thread: EmailThread | None):
+        from .conversation import invoice_status
+        from .tasks import PlanContext
+
+        ctx = PlanContext(templates=self.templates, tags=self.tags)
+        if kind != "order":
+            return ctx
+        threads = [thread] if thread is not None else []
+        if order.order_code and self.gmail is not None:
+            # Accounting emails often live in their own thread: look them up by order code.
+            try:
+                for tid in self.gmail.search(f'"{order.order_code}" newer_than:180d', 10):
+                    if thread is None or tid != thread.id:
+                        threads.append(self.gmail.get_thread(tid, attachments=False))
+            except Exception as e:
+                log.warning("related-thread search failed: %s", e)
+        ctx.invoice = invoice_status(threads, self.s, self.s.user_email) if threads else None
+        ctx.customer_thread = self._customer_thread(order)
+        return ctx
+
+    def _customer_thread(self, order: Order) -> dict | None:
+        """The customer's own quote/inquiry thread, so a confirmation lands there."""
+        email = (order.customer.email or "").lower()
+        for r in self.store.list():
+            if r.kind == "quote_request" and r.conv and (
+                    (order.order_code and r.order_code == order.order_code) or email in r.conv.customer_emails):
+                return {"thread_id": r.thread_id, "conv": r.conv}
+        return None
+
+    def _log_manual_replies(self, thread: EmailThread, conv) -> None:
+        """Replies you sent straight from Gmail are recorded in Zoho too."""
+        from .conversation import Who, fresh_text, parse_date
+
+        if self.crm is None or not self.s.log_manual_replies or not conv.customer_emails:
+            return
+        started = parse_date(self.store.meta("started_at"))
+        who = Who(self.s, self.s.user_email, self.store.ignored_domains())
+        for m in thread.messages:
+            at = parse_date(m.date)
+            if (m.sender.lower() != self.s.user_email or not any(who.customer(r) for r in m.to + m.cc)
+                    or (started and at and at < started) or self.store.crm_logged(m.id)):
+                continue
+            try:
+                note = self.crm.log_followup(
+                    conv.customer_emails[0], f"Email to customer: {m.subject}"[:120],
+                    f"{fresh_text(m.body)}\n\n(sent from Gmail {m.date}; {thread.url})",
+                    name=conv.customer_name, company=conv.company)
+                self.store.mark_crm_logged(m.id, thread.id, note)
+                self.store.log(thread.id, f"Recorded your Gmail reply of {m.date[:10]} in Zoho")
+            except Exception as e:
+                log.warning("could not log reply %s in Zoho: %s", m.id, e)
+
+    # ---------- keeping the list current ----------
 
     def scan(self, query: str | None = None, limit: int = 50, rescan: bool = False) -> dict[str, int]:
         counts: dict[str, int] = {}
-        for tid in self.gmail.search(query or self.s.gmail_query, limit):
+        queries = [query] if query else [self.s.gmail_query, self.s.followup_query]
+        seen: list[str] = []
+        for q in queries:
+            for tid in self.gmail.search(q, limit):
+                if tid not in seen:
+                    seen.append(tid)
+        for tid in seen:
             existing = self.store.get(tid)
-            if existing and existing.status in ("pushed", "done", "awaiting_send"):
-                continue
-            thread = self.gmail.get_thread(tid)
+            if existing and (existing.status in ("pushed", "awaiting_send") or
+                             (existing.kind == "order" and existing.status == "done")):
+                continue   # handled orders stay handled; conversations reopen when the customer writes
+            thread = self.gmail.get_thread(tid, attachments=False)
             # Only re-read a thread when new replies arrived (or when asked to).
             if existing and not rescan and existing.message_count == len(thread.messages):
                 continue
             status = self.process_thread(thread)
             log.info("%s  %-12s %s", tid, status, thread.subject)
             counts[status] = counts.get(status, 0) + 1
+        counts.update({k: counts.get(k, 0) + v for k, v in self.promote_due().items()})
         return counts
+
+    def promote_due(self) -> dict[str, int]:
+        """Follow-ups whose day has come move from Upcoming to To decide."""
+        from .conversation import parse_date
+        from .tasks import build_plan
+
+        now = datetime.now(timezone.utc)
+        moved = 0
+        for rec in self.store.list("scheduled"):
+            due = parse_date(rec.due_at)
+            if due and due <= now and rec.order:
+                plan = build_plan(rec.kind, rec.order, rec.conv, rec.subject, self.s,
+                                  self._context(rec.kind, rec.order, None), rec.plan)
+                self.store.update(rec.thread_id, status="ready", plan=plan)
+                moved += 1
+        return {"due now": moved} if moved else {}
+
+    def refresh(self, thread_id: str) -> str:
+        """Re-read one thread from Gmail (after sending, or to double-check)."""
+        rec = self.store.get(thread_id)
+        thread = self.gmail.get_thread(thread_id, attachments=False)
+        return self.process_thread(thread, reuse_order=rec.order if rec else None)
+
+    def close_customer_threads(self, email: str | None, order_code: str | None, why: str) -> int:
+        """Stop follow-ups on the customer's other conversations (e.g. they ordered)."""
+        n = 0
+        email = (email or "").lower()
+        for r in self.store.list(["ready", "scheduled", "needs_review"]):
+            if r.kind == "quote_request" and r.conv and (
+                    (email and email in r.conv.customer_emails) or (order_code and r.order_code == order_code)):
+                self.store.update(r.thread_id, status="done", issues=[why])
+                self.store.log(r.thread_id, f"Follow-ups stopped: {why}")
+                n += 1
+        return n
 
     def push(self, thread_id: str, dry_run: bool = False, force: bool = False) -> dict:
         rec = self.store.get(thread_id)
@@ -215,6 +365,8 @@ class Pipeline:
     def push_ready(self, dry_run: bool = False) -> list[tuple[str, dict | str]]:
         results = []
         for rec in self.store.list("ready"):
+            if rec.kind != "order":
+                continue
             try:
                 results.append((rec.thread_id, self.push(rec.thread_id, dry_run=dry_run)))
             except Exception as e:
@@ -227,3 +379,12 @@ def _company_from_email(email: str | None) -> str:
         raise ZohoError("cannot create an Account without a company name or email")
     domain = email.split("@")[1].split(".")
     return re.sub(r"[-_]", " ", domain[-2] if len(domain) >= 2 else domain[0]).title()
+
+
+def _may_be_order(thread: EmailThread, rules: Order) -> bool:
+    """Only spend a Claude call on threads that could be an order."""
+    if rules.is_sales_order:
+        return True
+    text = thread.subject + " " + " ".join(m.subject for m in thread.messages[-3:])
+    names = " ".join(n for m in thread.messages for n in m.attachment_names)
+    return bool(re.search(r"\bOrder_|purchase order|\bPO\b", text, re.I) or re.search(r"\bPO\b|purchase", names, re.I))

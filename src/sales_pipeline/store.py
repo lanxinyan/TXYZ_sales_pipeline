@@ -6,7 +6,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from .models import Order
+from .models import Conversation, Order
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS orders (
@@ -30,7 +30,15 @@ EXTRA_COLUMNS = {
     "reasons": "TEXT",
     "plan_json": "TEXT",
     "waiting_since": "TEXT",
+    "conv_json": "TEXT",
+    "due_at": "TEXT",
 }
+OTHER_TABLES = """
+CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, thread_id TEXT, text TEXT);
+CREATE TABLE IF NOT EXISTS ignored (domain TEXT PRIMARY KEY, ts TEXT);
+CREATE TABLE IF NOT EXISTS crm_logged (message_id TEXT PRIMARY KEY, thread_id TEXT, note_id TEXT, ts TEXT);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+"""
 FIELDS = ["thread_id", "subject", "thread_url", "message_count", "status", "order_code", "order_json",
           "issues", "zoho_id", "error", "updated_at", *EXTRA_COLUMNS]
 
@@ -53,6 +61,8 @@ class Record:
     reasons: list[str] = field(default_factory=list)
     plan: list[dict] = field(default_factory=list)
     waiting_since: str | None = None
+    conv: Conversation | None = None
+    due_at: str | None = None
 
 
 class Store:
@@ -64,6 +74,8 @@ class Store:
         for col, typ in EXTRA_COLUMNS.items():
             if col not in have:
                 self.db.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
+        self.db.executescript(OTHER_TABLES)
+        self.db.execute("INSERT OR IGNORE INTO meta VALUES ('started_at', ?)", (_now(),))
         self.db.commit()
 
     def get(self, thread_id: str) -> Record | None:
@@ -82,15 +94,17 @@ class Store:
              status: str, order: Order | None, issues: list[str], zoho_id: str | None = None,
              error: str | None = None, kind: str = "order", priority: int = 0,
              reasons: list[str] | None = None, plan: list[dict] | None = None,
-             waiting_since: str | None = None) -> None:
+             waiting_since: str | None = None, conv: Conversation | None = None,
+             due_at: str | None = None) -> None:
         values = dict(
             thread_id=thread_id, subject=subject, thread_url=thread_url, message_count=message_count,
             status=status, order_code=order.order_code if order else None,
             order_json=order.model_dump_json() if order else None,
             issues=json.dumps(issues, ensure_ascii=False), zoho_id=zoho_id, error=error,
-            updated_at=datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            updated_at=_now(),
             kind=kind, priority=priority, reasons=json.dumps(reasons or [], ensure_ascii=False),
-            plan_json=json.dumps(plan or [], ensure_ascii=False), waiting_since=waiting_since)
+            plan_json=json.dumps(plan or [], ensure_ascii=False), waiting_since=waiting_since,
+            conv_json=conv.model_dump_json() if conv else None, due_at=due_at)
         self.db.execute(f"INSERT OR REPLACE INTO orders ({','.join(FIELDS)}) VALUES "
                         f"({','.join('?' * len(FIELDS))})", [values[f] for f in FIELDS])
         self.db.commit()
@@ -102,7 +116,7 @@ class Store:
         merged = dict(subject=rec.subject, thread_url=rec.thread_url, message_count=rec.message_count,
                       status=rec.status, order=rec.order, issues=rec.issues, zoho_id=rec.zoho_id,
                       error=rec.error, kind=rec.kind, priority=rec.priority, reasons=rec.reasons,
-                      plan=rec.plan, waiting_since=rec.waiting_since)
+                      plan=rec.plan, waiting_since=rec.waiting_since, conv=rec.conv, due_at=rec.due_at)
         merged.update(fields)
         self.save(thread_id, **merged)
 
@@ -115,4 +129,41 @@ class Store:
             issues=json.loads(row["issues"] or "[]"), zoho_id=row["zoho_id"], error=row["error"],
             updated_at=row["updated_at"], kind=row["kind"] or "order", priority=row["priority"] or 0,
             reasons=json.loads(row["reasons"] or "[]"), plan=json.loads(row["plan_json"] or "[]"),
-            waiting_since=row["waiting_since"])
+            waiting_since=row["waiting_since"],
+            conv=Conversation.model_validate_json(row["conv_json"]) if row["conv_json"] else None,
+            due_at=row["due_at"])
+
+    # ---------- activity log, ignore list, CRM log, meta ----------
+
+    def log(self, thread_id: str, text: str) -> None:
+        self.db.execute("INSERT INTO activity (ts, thread_id, text) VALUES (?,?,?)", (_now(), thread_id, text))
+        self.db.commit()
+
+    def activity(self, thread_id: str | None = None, limit: int = 100) -> list[dict]:
+        q, args = "SELECT ts, thread_id, text FROM activity", []
+        if thread_id:
+            q, args = q + " WHERE thread_id=?", [thread_id]
+        rows = self.db.execute(q + " ORDER BY id DESC LIMIT ?", [*args, limit])
+        return [dict(r) for r in rows]
+
+    def ignore_domain(self, domain: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO ignored VALUES (?,?)", (domain.lower(), _now()))
+        self.db.commit()
+
+    def ignored_domains(self) -> set[str]:
+        return {r["domain"] for r in self.db.execute("SELECT domain FROM ignored")}
+
+    def crm_logged(self, message_id: str) -> bool:
+        return bool(self.db.execute("SELECT 1 FROM crm_logged WHERE message_id=?", (message_id,)).fetchone())
+
+    def mark_crm_logged(self, message_id: str, thread_id: str, note_id: str) -> None:
+        self.db.execute("INSERT OR REPLACE INTO crm_logged VALUES (?,?,?,?)", (message_id, thread_id, note_id, _now()))
+        self.db.commit()
+
+    def meta(self, key: str) -> str | None:
+        row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
+        return row["value"] if row else None
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")

@@ -10,8 +10,8 @@ from email.utils import getaddresses, parseaddr
 
 from .models import Attachment, EmailMessage, EmailThread
 
-# Read, label and create drafts. This scope also allows sending, but the code only
-# sends a draft when you press Send in the dashboard.
+# Read, label and create drafts. Sales Desk never sends: you open the draft in
+# Gmail, read it over and press Send there yourself.
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 LABEL_REVIEW = "Zoho/Needs review"
@@ -144,10 +144,11 @@ class GmailSource:
         self.svc.users().threads().modify(
             userId="me", id=thread_id, body={"addLabelIds": add, "removeLabelIds": remove}).execute()
 
-    # ---------- drafts (customer-facing replies are gated on these) ----------
+    # ---------- drafts (you send them from Gmail) ----------
 
     def create_draft(self, thread_id: str | None, to: list[str] | str, subject: str, body: str,
-                     in_reply_to: str = "", cc: list[str] | str = "", quote: dict | None = None) -> str:
+                     in_reply_to: str = "", cc: list[str] | str = "", quote: dict | None = None) -> dict:
+        """Returns {"id": draft id, "thread_id": the Gmail thread the draft (and later the sent email) is in}."""
         from email.mime.text import MIMEText
 
         from .templates import quote_block
@@ -165,10 +166,18 @@ class GmailSource:
         if thread_id:
             message["threadId"] = thread_id
         d = self.svc.users().drafts().create(userId="me", body={"message": message}).execute()
-        return d["id"]
+        return {"id": d["id"], "thread_id": d.get("message", {}).get("threadId") or thread_id}
 
-    def send_draft(self, draft_id: str) -> str:
-        return self.svc.users().drafts().send(userId="me", body={"id": draft_id}).execute()["id"]
+    def draft_exists(self, draft_id: str) -> bool:
+        from googleapiclient.errors import HttpError
+
+        try:
+            self.svc.users().drafts().get(userId="me", id=draft_id, format="minimal").execute()
+            return True
+        except HttpError as e:
+            if getattr(e, "resp", None) is not None and e.resp.status == 404:
+                return False
+            raise
 
     def delete_draft(self, draft_id: str) -> None:
         self.svc.users().drafts().delete(userId="me", id=draft_id).execute()

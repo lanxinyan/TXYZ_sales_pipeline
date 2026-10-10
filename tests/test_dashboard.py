@@ -24,14 +24,34 @@ def test_views_are_sorted_and_counted(app):
     assert [t["id"] for t in up["tasks"]] == ["demo-upcoming"] and up["tasks"][0]["action"] == "Follow-up 1/4"
 
 
-def test_send_check_returns_409_then_send_anyway(app):
-    code, j = app.handle("POST", "/api/tasks/demo-race/approve", {"send": True})
+def test_check_returns_409_then_draft_anyway_and_you_send_from_gmail(app):
+    code, j = app.handle("POST", "/api/tasks/demo-race/approve", {})
     assert code == 409 and "already replied to the customer" in j["conflict"][0]
-    assert j["counts"]["send"] == 1
-    code, j = app.handle("POST", "/api/tasks/demo-race/send", {"step": "followup_1", "force": True})
+    assert j["counts"]["send"] == 0
+    code, j = app.handle("POST", "/api/tasks/demo-race/approve", {"force": True})
+    assert code == 200 and j["task"]["status"] == "awaiting_send" and j["counts"]["send"] == 1
+    assert app.handle("POST", "/api/tasks/demo-race/send", {"step": "followup_1"})[0] == 404   # no sending here
+    code, j = app.handle("POST", "/api/tasks/demo-race/demo_send", {})     # you press Send in Gmail
     assert code == 200 and j["task"]["status"] == "scheduled"
     _, act = app.handle("GET", "/api/activity", {})
-    assert any("(sent anyway)" in a["text"] for a in act["activity"])
+    assert any("from Gmail" in a["text"] for a in act["activity"])
+
+
+def test_a_scan_picks_up_drafts_you_sent(app):
+    app.handle("POST", "/api/tasks/demo-fu2/approve", {})
+    for d in list(app.pipeline.gmail.drafts):
+        app.pipeline.gmail.send_draft(d)
+    assert app.scan() == {"sent from Gmail": 1}
+    assert app.store.get("demo-fu2").status == "scheduled"
+
+
+def test_unsafe_drafts_are_flagged_on_the_page(app):
+    code, j = app.handle("GET", "/api/tasks?view=todo", {})
+    usa = next(t for t in j["tasks"] if t["id"] == "demo-usa")
+    assert next(s for s in usa["plan"] if s["id"] == "reply")["safety"] == []
+    code, j = app.handle("POST", "/api/tasks/demo-usa/approve",
+                         {"steps": {"reply": {"draft": {"cc": "usa@creative-biostructure.com"}}}})
+    assert code == 400 and "usa@creative-biostructure.com" in j["error"] and not app.pipeline.gmail.drafts
 
 
 def test_outcome_snooze_ignore_and_errors(app):

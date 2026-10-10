@@ -18,6 +18,14 @@ def demo(settings):
     return store, gmail, zoho, pipe, ex
 
 
+def send_in_gmail(gmail, ex, tid):
+    """You open the drafts in Gmail and press Send there; Sales Desk notices on its next look."""
+    for st in ex.store.get(tid).plan:
+        if st.get("state") == "drafted":
+            gmail.send_draft(st["draft_id"])
+    return ex.sync(tid)
+
+
 def lead(zoho, email):
     return next(r for (m, _), r in zoho.records.items() if r.get("Email") == email)
 
@@ -37,7 +45,7 @@ def test_the_list_follows_the_rules(demo, settings):
     fu2 = get("demo-fu2")
     assert action_label(fu2.kind, fu2.conv, settings) == "Follow-up 2/4"
     draft = fu2.plan[0]["draft"]
-    assert draft["to"] == "p.nair@helio-thera.example" and YANI in draft["cc"] and draft["quote"]["body"]
+    assert draft["to"] == "p.nair@helio-thera.example" and draft["cc"] == "" and draft["quote"]["body"]
     assert "had a chance to review the email below" in draft["body"]
     assert get("demo-fu4").plan[0]["id"] == "followup_4"
     assert get("demo-upcoming").status == "scheduled"
@@ -49,10 +57,13 @@ def test_the_list_follows_the_rules(demo, settings):
     assert not hold["enabled"] and "asked to wait" in hold["evidence"][0]
 
 
-def test_sending_a_follow_up_records_it_in_zoho_and_schedules_the_next(demo):
+def test_a_follow_up_is_drafted_and_you_send_it_from_gmail(demo):
     store, gmail, zoho, _, ex = demo
-    rec = ex.approve("demo-fu2", send=True)
-    assert any(line.startswith("SENT") for line in gmail.log)
+    rec = ex.approve("demo-fu2")
+    assert rec.status == "awaiting_send" and len(gmail.drafts) == 1
+    assert not any(line.startswith("SENT") for line in gmail.log)       # Sales Desk never sends
+    assert ex.sync("demo-fu2").status == "awaiting_send"                # not sent yet: stays in drafts
+    rec = send_in_gmail(gmail, ex, "demo-fu2")
     note = zoho.notes[-1]
     assert note["title"].startswith("Follow-up #2 (email)") and "had a chance to review" in note["content"]
     assert tags(zoho, "p.nair@helio-thera.example") == ["跟进中"]
@@ -62,26 +73,27 @@ def test_sending_a_follow_up_records_it_in_zoho_and_schedules_the_next(demo):
     assert any("Recorded “Follow-up #2" in a["text"] for a in store.activity("demo-fu2"))
 
 
-def test_a_colleague_following_up_first_stops_the_send(demo):
+def test_a_colleague_following_up_first_stops_the_draft(demo):
     store, gmail, _, _, ex = demo
-    ex.approve("demo-race")
     with pytest.raises(Conflict) as c:
-        ex.send("demo-race", "followup_1")
+        ex.approve("demo-race")
     assert "Yani Zhao already replied to the customer" in c.value.reasons[0]
-    assert not any(line.startswith("SENT") for line in gmail.log)
-    assert store.get("demo-race").status == "awaiting_send"          # kept as a draft
-    rec = ex.send("demo-race", "followup_1", force=True)              # "Send anyway"
-    assert rec.conv.touches == 3 and any(line.startswith("SENT") for line in gmail.log)
+    assert not gmail.drafts and store.get("demo-race").status == "ready"
+    assert ex.approve("demo-race", force=True).status == "awaiting_send"     # "Draft anyway"
+    rec = send_in_gmail(gmail, ex, "demo-race")
+    assert rec.conv.touches == 3
 
 
-def test_first_reply_uses_the_template_and_copies_the_team(demo):
+def test_first_reply_uses_the_template_and_goes_to_the_customer_only(demo):
     store, gmail, zoho, _, ex = demo
     draft = store.get("demo-inquiry").plan[1]["draft"]
-    assert draft["to"] == "rmoreau@northfield.example"
-    assert "inquiry@creative-biostructure.com" in draft["cc"] and YANI in draft["cc"]
+    assert draft["to"] == "rmoreau@northfield.example" and draft["cc"] == ""     # no inquiry@, no Yani
+    assert YANI not in str(draft) and "inquiry@" not in str(draft)
+    assert draft["subject"] == "Re: Liposome Formulation - Creative Biostructure (ID: BS01-M-261010001)"
     assert draft["body"].startswith("Hi Robin,") and "Liposome Formulation" in draft["body"]
     assert "1-631-559-9269" in draft["body"]
-    ex.approve("demo-inquiry", send=True)
+    ex.approve("demo-inquiry")
+    send_in_gmail(gmail, ex, "demo-inquiry")
     # Yani's existing CRM record is reused, not duplicated, and gets the note + stage tag
     assert sum(1 for r in zoho.records.values() if r.get("Email") == "rmoreau@northfield.example") == 1
     assert zoho.notes[-1]["title"].startswith("First reply (email)")
@@ -98,10 +110,10 @@ def test_reply_placeholder_must_be_filled_before_sending(demo, settings):
     rec = store.get("demo-upcoming")
     assert rec.status == "ready" and rec.plan[0]["draft"]["template"] == "reply"
     with pytest.raises(ValueError, match="Write your reply first"):
-        ex.approve("demo-upcoming", send=True)
-    rec = ex.approve("demo-upcoming", steps={"reply": {"draft": {"body": "Yes, we can. Quote to follow.\n\nTony"}}},
-                     send=True)
-    assert rec.status == "scheduled"
+        ex.approve("demo-upcoming")
+    rec = ex.approve("demo-upcoming", steps={"reply": {"draft": {"body": "Yes, we can. Quote to follow.\n\nTony"}}})
+    assert rec.status == "awaiting_send"
+    assert send_in_gmail(gmail, ex, "demo-upcoming").status == "scheduled"
 
 
 def test_customer_who_declines_is_thanked_and_tagged(demo):
@@ -109,22 +121,23 @@ def test_customer_who_declines_is_thanked_and_tagged(demo):
     rec = store.get("demo-declined")
     assert [s["id"] for s in rec.plan] == ["reply", "tag_lost"]
     assert "Thank you for letting us know" in rec.plan[0]["draft"]["body"]
-    rec = ex.approve("demo-declined", send=True)
+    ex.approve("demo-declined")
     assert tags(zoho, "j.hale@riverton-med.example") == ["不买了"]
-    assert rec.status == "done"
+    assert send_in_gmail(gmail, ex, "demo-declined").status == "done"
 
 
-def test_no_answer_after_four_follow_ups_closes_as_lost(demo):
+def test_no_answer_after_four_follow_ups_is_tagged_no_reply(demo):
     store, _, zoho, _, ex = demo
-    assert store.get("demo-close").plan[0]["id"] == "tag_lost"
+    assert store.get("demo-close").plan[0]["id"] == "tag_no_response"
     assert ex.approve("demo-close").status == "done"
-    assert tags(zoho, "m.ito@bluefin-bio.example") == ["不买了"]
+    assert tags(zoho, "m.ito@bluefin-bio.example") == ["No reply"]
 
 
 def test_order_creates_the_sale_tags_it_and_stops_quote_follow_ups(demo):
     store, gmail, zoho, _, ex = demo
     assert store.get("demo-order-cust").status == "ready"           # follow-up 1 was due
-    rec = ex.approve("demo-order", send=True)
+    assert ex.approve("demo-order").status == "awaiting_send"
+    rec = send_in_gmail(gmail, ex, "demo-order")
     states = {s["id"]: s["state"] for s in rec.plan}
     assert states == {"zoho_so": "done", "tag_ordered": "done", "label": "done", "confirm": "sent",
                       "accounting": "skipped"}                       # Yani already did accounting
@@ -135,13 +148,12 @@ def test_order_creates_the_sale_tags_it_and_stops_quote_follow_ups(demo):
     assert zoho.notes[-1]["title"].startswith("Order confirmation (email)")
 
 
-def test_accounting_email_is_rechecked_right_before_sending(demo):
+def test_accounting_email_is_rechecked_before_it_is_drafted(demo):
     store, gmail, _, _, ex = demo
     with pytest.raises(Conflict) as c:
-        ex.approve("demo-order-hold", steps={"accounting": {"enabled": True}, "confirm": {"enabled": False}},
-                   send=True)
+        ex.approve("demo-order-hold", steps={"accounting": {"enabled": True}, "confirm": {"enabled": False}})
     assert "asked to hold the invoice" in c.value.reasons[0]
-    assert not any("SENT" in line for line in gmail.log)
+    assert not gmail.drafts
 
 
 def test_outcome_buttons_keep_one_lifecycle_tag(demo):
@@ -169,7 +181,7 @@ def test_unticking_the_email_keeps_the_conversation_alive(demo):
     store, gmail, _, _, ex = demo
     rec = ex.approve("demo-fu2", steps={"followup_2": {"enabled": False}})
     assert rec.status == "scheduled" and not gmail.drafts
-    assert "no email was sent" in store.activity("demo-fu2")[0]["text"]
+    assert "no email was drafted" in store.activity("demo-fu2")[0]["text"]
 
 
 def test_replies_sent_straight_from_gmail_are_recorded_once(demo):
@@ -203,3 +215,43 @@ def test_first_reply_sees_a_zoho_record_even_without_a_crm_email(demo, settings)
     pipe.refresh("demo-upcoming")
     step = store.get("demo-upcoming").plan[0]
     assert step["id"] == "crm_inquiry" and not step["enabled"] and "Already in Zoho" in step["detail"]
+
+
+def test_a_draft_deleted_in_gmail_comes_back_to_decide(demo):
+    store, gmail, _, _, ex = demo
+    rec = ex.approve("demo-fu2")
+    gmail.delete_draft(rec.plan[0]["draft_id"])                    # you deleted it in Gmail
+    rec = ex.sync("demo-fu2")
+    assert rec.status == "ready" and rec.plan[0]["state"] == "pending" and "deleted" in rec.plan[0]["result"]
+
+
+def test_customer_emails_never_reach_colleagues_or_carry_chinese(demo):
+    from sales_pipeline.demo import USA
+    from sales_pipeline.safety import UnsafeEmail
+
+    store, gmail, _, _, ex = demo
+    rec = store.get("demo-usa")                    # the US office forwarded it with a note in Chinese
+    reply = next(s for s in rec.plan if s["id"] == "reply")
+    d = reply["draft"]
+    assert d["to"] == "h.berg@fjord-bio.example" and d["cc"] == "" and USA not in str(d)
+    assert d["subject"] == "Re: Negative stain EM question" and not d.get("quote")
+    assert "请" not in d["body"]
+    with pytest.raises(UnsafeEmail, match="usa@creative-biostructure.com"):
+        ex.approve("demo-usa", steps={"reply": {"draft": {"cc": USA}}})
+    with pytest.raises(UnsafeEmail, match="Chinese"):
+        ex.approve("demo-usa", steps={"reply": {"draft": {"cc": "", "body": d["body"] + "\n请看下"}}})
+    assert not gmail.drafts
+    ex.approve("demo-usa", steps={"reply": {"draft": {"body": d["body"]}}})
+    (made,) = gmail.drafts.values()
+    assert made["to"] == ["h.berg@fjord-bio.example"] and made["cc"] == []
+
+
+def test_the_chinese_accounting_brief_is_only_for_accounting(settings):
+    from sales_pipeline.safety import problems
+
+    brief = {"to": "accounting@creative-biomart.com", "subject": "Order_X 开发票", "body": "Order_X: 麻烦开发票 $1,000"}
+    assert problems(brief, settings) == []
+    assert problems(dict(brief, cc="dr.lee@harborline-bio.example"), settings)
+    to_customer = {"to": "dr.lee@harborline-bio.example", "subject": "Re: Quote", "body": "Hi Dana,"}
+    assert problems(to_customer, settings) == []
+    assert problems(dict(to_customer, body="Hi Dana, ask usa@creative-biostructure.com"), settings)

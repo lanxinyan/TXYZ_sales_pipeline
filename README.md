@@ -2,15 +2,16 @@
 
 One prioritized to-do list for the sales mailbox (`xinyan.zhang@creative-biostructure.com`).
 It covers new inquiries, follow-ups on quotes, and new orders. Each item comes with a ready-made
-plan. You approve it, and the routine work happens in **Zoho CRM**: records, tags, follow-up
-notes and Sales Orders. Anything a customer or accounting will read is sent only with your OK, and only
-after re-checking that a colleague hasn't already done it.
+plan. You approve it and the emails become **Gmail drafts**: you open Gmail, read each one over and
+press Send yourself. Sales Desk never sends. What should change in **Zoho CRM** (notes, tags, new
+Inquiry records) goes into a **Gmail feed for Cowork**, which updates Zoho by the CRM rulebook.
 
 ```
- Gmail ──scan──▶ read the thread ──▶ what's due? ──▶ To-do list ──approve──▶ Zoho: records, tags, notes, Sales Order
- (inquiries,     (who wrote last,     (reply today,   (priority +            Gmail: drafts → re-check → send
-  quotes,         colleagues,          follow-up n,    plan)                        → recorded as a follow-up in Zoho
-  orders, sent)   order forms, PDFs)   close, order)
+ Gmail ──scan──▶ read the thread ──▶ what's due? ──▶ To-do list ──approve──▶ re-check ──▶ Gmail draft ──▶ you press Send
+ (inquiries,     (who wrote last,     (reply today,   (priority +                                           │
+  quotes,         colleagues,          follow-up n,    plan)                       next scan notices it ◀───┘
+  orders, sent)   order forms, PDFs)   close, order)                                        │
+                                                              Feed for Cowork ◀─────────────┘──▶ Cowork updates Zoho
 ```
 
 ## The rules it follows
@@ -26,18 +27,26 @@ so Yani's follow-ups count too.
 | Still no answer | **Follow-up 2**: *had a chance to review?* | 2 days later |
 | Still no answer | **Follow-up 3**: *has a decision been made on the quote?* (or *still interested?* if no quote went out) | a week later |
 | Still no answer | **Follow-up 4**: *if you went with another vendor, a courtesy reply please* | a month later |
-| Still no answer | **Close**: tag 不买了 | 14 days later |
+| Still no answer | **Close**: tag **No reply** | 14 days later |
 | Customer says they're going elsewhere ("more expensive… our core facility") | **Thank-you reply + tag 不买了**, no more follow-ups | right away |
 | "Great, thanks!" | nothing to do | |
 
-Each follow-up is firmer than the one before. Each is sent as a reply in the same thread, with your
-previous email quoted underneath and the same colleagues copied. Follow-ups that aren't due yet wait in
-**Upcoming** and move to **To decide** on their day.
+Each follow-up is firmer than the one before. Each is a reply in the same thread, with your previous
+email quoted underneath. Follow-ups that aren't due yet wait in **Upcoming** and move to **To decide**
+on their day.
 
-**Checking what colleagues did.** Before a plan is shown, and again right before anything is sent:
+**Emails to customers go to customers only.** No colleague and no internal mailbox (Emma Flores /
+usa@, Yani, inquiry@ …) is put in To or Cc, or named in the text, and nothing in Chinese is included:
+the accounting note and colleagues' comments stay internal. A reply to a forwarded inquiry stays in
+the same Gmail thread (so the conversation stays together), but only the customer receives it. If you
+edit a draft in Sales Desk so that it breaks these rules, it isn't made. Add colleagues yourself in
+Gmail if you ever need to.
 
-- If the customer wrote, or a colleague (Yani, Charles…) already replied or followed up, the send stops and
-  you see what happened. You choose **Send anyway** or keep it as a draft.
+**Checking what colleagues did.** Before a plan is shown, and again right before a draft is made:
+
+- If the customer wrote, or a colleague (Yani, Charles…) already replied or followed up, nothing is drafted
+  and you see what happened. You choose **Draft anyway** or leave it. While a draft waits in Gmail, the
+  same check runs on every scan and warns you on the item.
 - If someone already sent the order to accounting (e.g. "麻烦收预付"), or accounting already sent the
   invoice, the invoice request is left unticked and the evidence is shown. The same applies if someone
   asked to wait (e.g. "先稍等发预付invoice").
@@ -48,15 +57,24 @@ previous email quoted underneath and the same colleagues copied. Follow-ups that
 - A conversation belongs to whoever answers the customer. If a colleague answered and you haven't written to
   that customer, it's left to them, even when the inquiry was forwarded to both of you.
 
-**Zoho CRM.**
+**Zoho CRM, through Cowork.** Sales Desk doesn't write to Zoho itself for now (no API access yet, and the
+rulebook says only Tony's CBSXY/CBSRX inquiries, each change confirmed). Instead, **Feed for Cowork**
+writes a file that Cowork reads and applies, asking you before each change:
 
-- **Every email to a customer is recorded as a follow-up note** on their record (title like
-  "Follow-up #2 (email) 2026-10-10", with the text and a link to the thread). Replies you send straight
-  from Gmail are recorded on the next scan, once only.
-- **Lifecycle tags.** A customer carries one stage tag at a time. When 已下单 goes on, 不买了 / 跟进中 / … come
-  off. Buttons on every item: **已下单**, **不买了**.
-- **Orders.** A Sales Order is created with Account / Contact / Products and the quote PDF attached. The
-  customer is tagged 已下单, and follow-ups on their quote thread stop.
+- **Note entries in the rulebook's format**, one running note per inquiry: `100626q: CBSXY10052611`
+  (quote sent), `100726f: follow-up 1` (we followed up, yours or a colleague's), `100926r: wants discount`
+  (the customer replied), `101226: PO received`, `100726: teleconference`, `NDA signed`, `samples received`.
+  Each comes with a short excerpt, so Cowork can choose better words.
+- **Inquiry numbers** found in Gmail ("Inquiry-0031002 crm created"); conversations without one get
+  suggestions for a new record (Inquiry Level/Customer Type: D for free-mail, A for .gov, B for academia;
+  Key Customer YES only after an order over $20,000; Team from the quote number).
+- **Tags**: `No reply` after 4 unanswered follow-ups, `已下单` for orders, how each quote was sent (PDF / formal
+  / in the email body) so you can pick Draft Quote / PDF Quote / formal quote, and the outcome buttons you
+  pressed (**已下单**, **不买了**, **No reply**).
+- **Only your conversations**: ones where you wrote to the customer, new inquiries sent to you, and orders
+  sent to you. Threads you're only copied on are left out, and so is anything whose quote/order number
+  belongs to another team (CBSMA …).
+- Each feed only has what's new since the last one (`sales-pipeline crm-feed --all` repeats everything).
 
 ## Getting started
 
@@ -101,7 +119,9 @@ If your company's Google admin blocks this, ask them to allow internal apps to u
 4. It saves everything to `.env`, then lists your Zoho modules and tags (see *Where customers live in Zoho*).
    Check that it picked the module holding your inquiries.
 
-Your account is on Zoho's US data center (crm.zoho.com), which is what Sales Desk uses by default.
+This step is only needed later, once Sales Desk is allowed to write to Zoho itself. Until then, skip it:
+Zoho is updated by Cowork from the feed (step 6). Your account is on Zoho's US data center
+(crm.zoho.com), which is what Sales Desk uses by default.
 
 If it says your user isn't allowed to use the Zoho CRM API (`NO_PERMISSION`, `Crm_Implied_Api_Access`), a Zoho
 administrator has to switch on API access for your profile: **Setup → Users and Control → Security Control →
@@ -113,13 +133,19 @@ Profiles →** your profile **→ Zoho CRM API**. You don't need to reconnect af
 Gmail when it starts and every 15 minutes after that. Anything missing? Run `sales-pipeline check`, or just
 re-run `1 Setup`, which ends with the same checklist.
 
+**6. Point the feed at Cowork (once)**: open `.env` in Notepad and set `CRM_FEED_DIR` to the folder Cowork
+works in, for example
+`CRM_FEED_DIR=C:\Users\you\OneDrive\Jobapplication2024\creativebio\试用\CRMsystem_updates\Cowork`.
+Then **Feed for Cowork** (top right of the page) writes `gmail-feed-<date>.md` there. In Cowork, say
+*"Apply the newest Gmail feed in this folder"*.
+
 **The first run**
 - The first scan reads 60 days of sent mail and 30 days of inquiries and orders. It can take a minute or two,
   and items appear as they're found.
 - Expect a backlog. Quotes that went quiet come up with the follow-up that fits the time that has passed (up to
   the final one), not a gentle "did you receive it?" weeks later. Work through them, snooze them, or mark them
   不买了. To start smaller, set `FOLLOWUP_QUERY=in:sent newer_than:14d` in `.env`.
-- Only replies you send from now on are recorded in Zoho; past ones aren't back-filled.
+- The first feed for Cowork covers the last 30 days (`sales-pipeline crm-feed --days 60` for more).
 
 **Optional settings** (`.env`): `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template),
 `EMAIL_SIGNATURE`. Add `ANTHROPIC_API_KEY` to let Claude read order emails and their PDF quotes/POs. Without
@@ -156,14 +182,18 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
 
 - **To decide**: what needs you today, sorted by priority. Each item shows the conversation (customer /
   you / colleague / accounting / CRM), what colleagues already did, and the plan.
-  - **Approve & send** (`E`): routine steps run, the emails are re-checked and sent, then recorded in Zoho.
-  - **Approve, keep drafts** (`A`): the same, but the emails wait in *Waiting to send* (also in Gmail Drafts).
-  - Outcome buttons: **已下单**, **不买了**, snooze **1 day / 3 days / 1 week**, **Not a customer** (vendors,
-    never suggested again).
-  - Edit any email before sending. Follow-ups have a *Wording* picker for the alternatives.
-- **Upcoming**: scheduled follow-ups with their dates. You can send one early.
-- **Waiting to send**: drafts you approved. **Send now** re-checks first.
-- **Activity**: everything Sales Desk did on its own (Zoho notes, tags, recorded Gmail replies, snoozes).
+  - **Approve & make Gmail drafts** (`A`): Gmail is checked for colleague activity, the routine steps run,
+    and the emails go to your Gmail drafts. Then open Gmail, read them over, and press **Send** there.
+  - Outcome buttons: **已下单**, **不买了**, **No reply**, snooze **1 day / 3 days / 1 week**, **Not a customer**
+    (vendors, never suggested again).
+  - Edit any email before approving. Follow-ups have a *Wording* picker for the alternatives. After that,
+    edit in Gmail.
+- **Upcoming**: scheduled follow-ups with their dates. You can make one's draft early.
+- **In Gmail drafts**: drafts waiting for you to send. **Open in Gmail** opens it; **I sent it: check Gmail**
+  picks it up right away (otherwise the next scan does). Sending it schedules the next follow-up. If you
+  delete the draft in Gmail, the item comes back to *To decide*.
+- **Feed for Cowork** (top right): writes the file for Cowork (see *Zoho CRM, through Cowork*).
+- **Activity**: everything Sales Desk did on its own (drafts made, emails you sent, feeds written, snoozes).
 
 `sales-pipeline followups` prints the same due/upcoming list in the terminal.
 
@@ -179,6 +209,7 @@ customer ("Dear Dr. Okafor,").
 
 ```bash
 sales-pipeline scan                      # read new/updated threads
+sales-pipeline crm-feed                  # write the Gmail feed for Cowork into CRM_FEED_DIR
 sales-pipeline list                      # what was found; "!" lines say what needs fixing
 sales-pipeline show CBSRX09242501B-2     # full extracted order (by order code or thread id)
 sales-pipeline show CBSRX09242501B-2 --json > fix.json && sales-pipeline edit CBSRX09242501B-2 fix.json
@@ -188,9 +219,11 @@ sales-pipeline push CBSRX09242501B-2             # create it
 
 ## Safety
 
-- Nothing reaches a customer or accounting without your approval. Every send re-reads the thread and Zoho
-  first.
-- A reply that still says `[write your reply here]` can't be sent.
+- Sales Desk never sends email. It makes Gmail drafts; you press Send in Gmail after a final read.
+- Emails to customers go to customers only, with no colleague or internal mailbox in To/Cc or in the
+  text, and no Chinese. Internal emails (the accounting request) go to internal addresses only.
+- Every draft re-reads the thread first (and Zoho, when connected).
+- A reply that still says `[write your reply here]` can't be drafted.
 - Sales Orders are created once: an existing one with the same order number is linked, not duplicated.
 - Customer records are found by email across the customer modules (see below) before one is
   created.
@@ -219,8 +252,10 @@ To fill custom fields, extend `sales_order_payload()` in `src/sales_pipeline/pip
 | `conversation.py` | reads a thread: who wrote last, follow-up count, due date, colleague activity, decline / order signals, invoice status |
 | `tasks.py` | kind, priority, and the plan (routine vs. emails needing your OK) |
 | `templates.py`, `templates.txt` | email wording and rendering |
-| `actions.py` | approve / send (with re-checks) / snooze / outcomes; records every email in Zoho |
-| `crm.py` | the customer's Zoho record: find across modules, lifecycle tags, follow-up notes |
+| `actions.py` | approve (re-check, then Gmail drafts) / pick up what you sent from Gmail / snooze / outcomes |
+| `safety.py` | customer emails: customers only, no internal addresses, no Chinese |
+| `feed.py` | the Gmail feed for Cowork (note entries, tags, inquiry numbers, new-record suggestions) |
+| `crm.py` | the customer's Zoho record when writing directly (`ZOHO_DIRECT_UPDATES`, off for now) |
 | `pipeline.py` | scanning, scheduling, order extraction + validation, Sales Order push |
 | `gmail_source.py` | Gmail API: threads (drafts excluded), attachments, labels, reply drafts |
 | `zoho.py` | Zoho CRM v8 REST client (records, search, tags, notes, attachments) |

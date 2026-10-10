@@ -81,8 +81,13 @@ class Settings:
     # 1st follow-up next day, 2nd in 2 days, 3rd in a week, 4th in a month.
     followup_days: list[int] = field(default_factory=lambda: [1, 2, 7, 30])
     first_reply_hours: int = 24      # answer a customer's first email the same day
-    close_after_days: int = 14       # after the 4th follow-up, suggest closing (不买了)
+    close_after_days: int = 14       # after the 4th follow-up, suggest closing (No reply)
     log_manual_replies: bool = True  # also record replies you send from Gmail in Zoho
+
+    # Until Zoho API access is approved (and the CRM rulebook is final), Sales Desk does not
+    # write customer records, tags or notes itself: it writes a Gmail feed for Cowork instead.
+    zoho_direct_updates: bool = False
+    crm_feed_dir: str = "cowork_feed"
 
     db_path: str = "sales_pipeline.db"
     auto_push: bool = False
@@ -134,6 +139,8 @@ class Settings:
             first_reply_hours=int(env("FIRST_REPLY_HOURS") or d.first_reply_hours),
             close_after_days=int(env("CLOSE_AFTER_DAYS") or d.close_after_days),
             log_manual_replies=_bool(env("LOG_MANUAL_REPLIES"), d.log_manual_replies),
+            zoho_direct_updates=_bool(env("ZOHO_DIRECT_UPDATES"), d.zoho_direct_updates),
+            crm_feed_dir=env("CRM_FEED_DIR") or d.crm_feed_dir,
             db_path=env("DB_PATH") or d.db_path,
             auto_push=_bool(env("AUTO_PUSH"), d.auto_push),
             scan_interval_min=int(env("SCAN_INTERVAL_MIN") or d.scan_interval_min),

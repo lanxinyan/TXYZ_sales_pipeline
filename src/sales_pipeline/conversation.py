@@ -146,7 +146,8 @@ def forward_origin(body: str) -> dict | None:
                   "phone": form.get("phone"), "topic": form.get("topic")}
     if not origin:
         return None
-    subj = re.search(r"^\s*Subject:\s*(.+(?:\n\S.*)?)$", block[:800], re.M)
+    # A long subject may wrap onto a second line, but the next header ("To: ...") is not part of it.
+    subj = re.search(r"^\s*Subject:\s*(.+(?:\n(?![\w-]+:\s)\S.*)?)$", block[:800], re.M)
     if subj and not origin.get("topic"):
         origin["topic"] = clean_topic(re.sub(r"\s+", " ", subj.group(1)))
     origin["text"] = fresh_text(block.split("\n\n", 1)[-1])
@@ -243,7 +244,9 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                 conv.last_outbound = {
                     "gmail_id": m.id, "rfc_id": m.message_id, "sender": sender, "sender_name": display_name(m),
                     "to": [r for r in (x.lower() for x in m.to) if who.customer(r)] or ext,
-                    "cc": list(dict.fromkeys(cc)), "subject": m.subject, "date": iso(at), "body": text[:4000]}
+                    "cc": list(dict.fromkeys(cc)), "customer_cc": [r for r in (x.lower() for x in m.cc)
+                                                                   if who.customer(r)],
+                    "subject": m.subject, "date": iso(at), "body": text[:4000]}
                 conv.replied_ever = True
                 conv.i_participated = conv.i_participated or sender == me
                 g = GREETING.match(next((ln for ln in text.splitlines() if ln.strip()), ""))
@@ -290,7 +293,9 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
             conv.last_inbound_to_me = to_me
             ours = [r for r in [sender, *recips] if who.internal(r) and r != me]
             conv.last_inbound = {"gmail_id": m.id, "rfc_id": m.message_id, "sender": sender,
-                                 "subject": m.subject, "date": iso(at), "cc": list(dict.fromkeys(ours))}
+                                 "subject": m.subject, "date": iso(at), "cc": list(dict.fromkeys(ours)),
+                                 # their colleagues they copied (ours are never copied on customer emails)
+                                 "customer_cc": [r for r in recips if who.customer(r) and r != email]}
             last_in = at or last_in
             touches = 0
         conv.events.append(event)

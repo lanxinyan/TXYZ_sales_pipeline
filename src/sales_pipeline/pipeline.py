@@ -123,7 +123,10 @@ class Pipeline:
         from .templates import load as load_templates
 
         self.s, self.store, self.gmail, self.zoho, self.llm = settings, store, gmail, zoho, llm
-        self.crm = crm if crm is not None else (CustomerCRM(zoho, settings) if zoho is not None else None)
+        # Customer records/tags/notes are written by Cowork from the Gmail feed, unless
+        # ZOHO_DIRECT_UPDATES is turned on (after API access and a final rulebook).
+        self.crm = crm if crm is not None else (
+            CustomerCRM(zoho, settings) if zoho is not None and settings.zoho_direct_updates else None)
         self.tags = self.crm.tags if self.crm else load_tag_map(settings.zoho_tag_file)
         self.templates = templates or load_templates(settings.templates_file)
 
@@ -212,7 +215,7 @@ class Pipeline:
         from .conversation import invoice_status
         from .tasks import PlanContext
 
-        ctx = PlanContext(templates=self.templates, tags=self.tags)
+        ctx = PlanContext(templates=self.templates, tags=self.tags, crm=self.crm is not None)
         if kind == "quote_request":
             if self.crm is not None and conv is not None and conv.customer_emails and not conv.replied_ever:
                 try:   # a colleague may already have created the inquiry in Zoho

@@ -14,7 +14,9 @@ from .store import Store
 ME = "you@creative-biostructure.com"
 YANI = "yani.zhao@creative-biostructure.com"
 INQ = "inquiry@creative-biostructure.com"
-DEMO_TAGS = {"inquiry": "询价", "quoted": "已报价", "following_up": "跟进中", "ordered": "已下单", "lost": "不买了"}
+USA = "usa@creative-biostructure.com"
+DEMO_TAGS = {"inquiry": "询价", "quoted": "已报价", "following_up": "跟进中", "ordered": "已下单", "lost": "不买了",
+             "no_response": "No reply"}
 
 FORM = ("年月日 报价号 包裹类型 备注 产品/定制/服务 目录号 业务类别 产品名称 Qty PO 产品报价 S H Dry Ice "
         "5%信用卡手续费 sales 销售人员 新客户/老客户/分销商 {date} {code} 服务 {product} 1*1 无 ${price} $0.00 "
@@ -95,7 +97,7 @@ def demo_threads() -> tuple[list[EmailThread], dict[str, Order], dict[str, list[
         M(YANI, ["d.okafor@kestrel-labs.example"], "Dear Dr. Okafor, we have not heard from you since the quote was "
           "delivered. Has a decision been made?", _ago(days=35), s, cc=[ME], name="Yani Zhao")], url))
 
-    # 4. All four follow-ups sent, nothing back for 20 days -> suggest closing as 不买了.
+    # 4. All four follow-ups sent, nothing back for 20 days -> suggest closing as No reply.
     s = "Re: SPR binding kinetics proposal"
     T.append(EmailThread("demo-close", s, [
         M(ME, ["m.ito@bluefin-bio.example"], "Dear Dr. Ito,\n\nBelow is our quote CBSXY07152602 for SPR kinetics."
@@ -188,6 +190,15 @@ def demo_threads() -> tuple[list[EmailThread], dict[str, Order], dict[str, list[
           "updated data.", _ago(days=3), s, cc=[ME], name="Charles Leong"),
         M("s.kim@hillside-demo.example", ["support@creative-biostructure.com"], "Thanks Charles, a question on "
           "peak 3?", _ago(days=1), s, cc=[ME], name="Scott Kim")], url))
+
+    # 13. The US office forwards a customer's question with a note in Chinese. The reply must go to
+    #     the customer only (not back to usa@) and carry none of the internal note.
+    s = "Fwd: Negative stain EM question"
+    T.append(EmailThread("demo-usa", s, [
+        M(USA, [ME], "请看下这个问题，谢谢\n\n---------- Forwarded message ---------\nFrom: Hanna Berg "
+          "<h.berg@fjord-bio.example>\nDate: Fri, Oct 9, 2026\nSubject: Negative stain EM question\n"
+          "To: <usa@creative-biostructure.com>\n\nHello, could you quote negative-stain EM for 4 protein samples? "
+          "Thanks, Hanna", _ago(hours=8), s, name="US Office")], url))
     return T, answers, late
 
 
@@ -206,7 +217,7 @@ class DemoGmail:
             code = m.group(1)
             return [t.id for t in self.threads.values()
                     if code in t.subject or any(code in x.body for x in t.messages)][:limit]
-        return list(self.threads)[:limit]
+        return [t for t in self.threads if not t.startswith("new-")][:limit]
 
     def get_thread(self, tid, attachments=True):
         if self.armed and tid in self.late:
@@ -219,11 +230,18 @@ class DemoGmail:
     def create_draft(self, tid, to, subject, body, in_reply_to="", cc="", quote=None):
         self._n += 1
         did = f"d{self._n}"
+        if not tid:   # a new email starts its own thread
+            tid = f"new-{did}"
+            self.threads[tid] = EmailThread(tid, subject, [], "https://mail.google.com/")
         self.drafts[did] = {"thread": tid, "to": to, "cc": cc, "subject": subject, "body": body, "quote": quote}
         self.log.append(f"draft {did} to {to}: {subject}")
-        return did
+        return {"id": did, "thread_id": tid}
+
+    def draft_exists(self, draft_id):
+        return draft_id in self.drafts
 
     def send_draft(self, draft_id):
+        """Stands in for you pressing Send in Gmail (Sales Desk itself never sends)."""
         d = self.drafts.pop(draft_id)
         self._n += 1
         mid = f"sent{self._n}"
@@ -296,7 +314,7 @@ class DemoZoho:
         return f"note-{len(self.notes)}"
 
     def list_tags(self, module):
-        return [{"name": n} for n in ("询价", "已报价", "跟进中", "已下单", "不买了", "VIP")]
+        return [{"name": n} for n in ("询价", "已报价", "跟进中", "已下单", "不买了", "No reply", "VIP")]
 
     def list_modules(self):
         return [{"api_name": "Leads", "plural_label": "Inquiries"}, {"api_name": "Contacts", "plural_label": "Contacts"},

@@ -28,9 +28,11 @@ h1{font-size:16px;margin:0;font-weight:650;white-space:nowrap}
 .spacer{flex:1}
 .badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600;white-space:nowrap}
 .badge.demo{background:var(--med-bg);color:var(--med)} .badge.off{background:var(--bad-bg);color:var(--high)}
-.badge.busy{background:var(--sel);color:var(--accent)}
+.badge.busy{background:var(--sel);color:var(--accent)} .badge.info{background:var(--col-bg);color:var(--accent)}
 button.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
-button.btn:hover{background:var(--hover)}
+button.btn:hover,a.btn:hover{background:var(--hover)}
+a.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:7px;cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
+a.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
 button.primary:hover{filter:brightness(1.08);background:var(--accent)}
 button.small{padding:3px 9px;font-size:12.5px}
@@ -123,6 +125,7 @@ dialog .acts{justify-content:flex-end}
   <nav class="tabs" id="tabs"></nav>
   <span class="spacer"></span>
   <span id="chips"></span>
+  <button class="btn" id="feed" title="Write what Cowork should update in Zoho into a file it reads">Feed for Cowork</button>
   <button class="btn" id="scan">Scan Gmail</button>
 </header>
 <main>
@@ -130,10 +133,12 @@ dialog .acts{justify-content:flex-end}
   <div id="detail"><div class="empty">Nothing selected.</div></div>
 </main>
 <div id="toast"></div>
-<dialog id="conflict"><h4>Before sending, I checked again and found:</h4><ul id="conflict-list"></ul>
-  <div class="acts"><button class="btn" id="c-cancel">Don't send (keep as draft)</button><button class="btn primary" id="c-force">Send anyway</button></div></dialog>
+<dialog id="conflict"><h4>Before drafting, I checked Gmail again and found:</h4><ul id="conflict-list"></ul>
+  <div class="acts"><button class="btn" id="c-cancel">Don't draft</button><button class="btn primary" id="c-force">Draft anyway</button></div></dialog>
+<dialog id="feed-dlg"><h4>Feed for Cowork</h4><div id="feed-text"></div>
+  <div class="acts" style="margin-top:14px"><button class="btn primary" id="feed-ok">OK</button></div></dialog>
 <script>
-const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["send","Waiting to send"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
+const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
 const KIND={customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
 let view="todo", tasks=[], counts={}, sel=0, info={tags:{}};
 const $=s=>document.querySelector(s);
@@ -158,7 +163,7 @@ async function load(keep){
 function renderHeader(){
   $("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab ${k===view?"on":""}" data-v="${k}">${l}${k in counts&&k!=="activity"?`<b>${counts[k]}</b>`:""}</button>`).join("");
   document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{view=b.dataset.v;load()});
-  $("#chips").innerHTML=(info.scanning?`<span class="badge busy">Scanning Gmail…</span> `:"")+(info.demo?`<span class="badge demo">DEMO DATA</span> `:"")+(!info.zoho?`<span class="badge off">Zoho not connected</span>`:"");
+  $("#chips").innerHTML=(info.scanning?`<span class="badge busy">Scanning Gmail…</span> `:"")+(info.demo?`<span class="badge demo">DEMO DATA</span> `:"")+(!info.crm?`<span class="badge info" title="Sales Desk doesn't write to Zoho itself; use Feed for Cowork">Zoho: via Cowork</span>`:"");
   clearTimeout(window._poll); if(info.scanning)window._poll=setTimeout(()=>{if(!busyEditing())load(true)},4000);
 }
 function rowWhy(t){
@@ -168,7 +173,7 @@ function rowWhy(t){
 function renderList(){
   if(view==="activity"){
     const a=window._activity; $("#list").innerHTML=a.length?a.map(x=>`<div class="act-row"><div class="when">${esc(new Date(x.ts).toLocaleString())}</div>${esc(x.text)}</div>`).join(""):`<div class="empty">Nothing yet. Everything Sales Desk does on its own is listed here.</div>`;return}
-  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${info.scanning&&view==="todo"?"Reading your Gmail… items appear here as they are found (the first scan can take a minute or two).":({todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",send:"No drafts waiting."}[view]||"Nothing here.")}</div>`;return}
+  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${info.scanning&&view==="todo"?"Reading your Gmail… items appear here as they are found (the first scan can take a minute or two).":({todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",send:"No drafts waiting in Gmail."}[view]||"Nothing here.")}</div>`;return}
   $("#list").innerHTML=tasks.map((t,i)=>{const o=t.order||{};
     return `<div class="row ${i===sel?"sel":""}" data-i="${i}"><span class="pill ${t.level}">${t.level}</span>
       <span class="t">${esc(t.title||t.subject)} ${t.action?`<span class="tag act">${esc(t.action)}</span>`:""}</span>
@@ -186,25 +191,30 @@ function timeline(c){
 }
 function stepHtml(s,t){
   const editable=(s.state==="pending"||s.state==="failed")&&(view==="todo"||view==="upcoming");
-  const label={pending:s.gated?"needs your OK":"will run",drafted:"draft ready",sent:"sent",done:"done",skipped:"skipped",failed:"failed"}[s.state]||s.state;
+  const label={pending:s.gated?"needs your OK":"will run",drafted:"in Gmail drafts",sent:"sent",done:"done",skipped:"skipped",failed:"failed"}[s.state]||s.state;
   let h=`<div class="step" data-step="${esc(s.id)}"><input type="checkbox" ${s.enabled?"checked":""} ${editable?"":"disabled"}>
     <div><div>${esc(s.title)}</div>${s.detail?`<div class="d">${esc(s.detail)}</div>`:""}</div><span class="st ${s.state}">${label}</span>`;
   if(s.evidence?.length)h+=`<div class="full callout col" style="margin:6px 0 0"><b>What colleagues already did</b><ul class="ev">${s.evidence.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`;
   if(s.gated&&s.draft){
-    const ro=(s.state==="sent"||s.state==="skipped")?"readonly":"";
+    const ro=(s.state==="sent"||s.state==="skipped"||s.state==="drafted")?"readonly":"";
     const v=s.draft.variants||[];
     h+=`<div class="full draft">${v.length>1&&ro===""?`<select data-variant>${v.map(x=>`<option value="${esc(x.key)}" ${x.key===s.draft.template?"selected":""}>Wording: ${esc(x.label)}</option>`).join("")}</select>`:""}
       <div class="two"><input data-d="to" value="${esc(s.draft.to)}" ${ro} placeholder="To"><input data-d="cc" value="${esc(s.draft.cc||"")}" ${ro} placeholder="Cc"></div>
       <input data-d="subject" value="${esc(s.draft.subject)}" ${ro}>
       <textarea data-d="body" ${ro}>${esc(s.draft.body)}</textarea>
       ${s.draft.quote?`<div class="quote">Quoted below your text: ${esc(s.draft.quote.sender)}, ${esc(s.draft.quote.date_label)}\n${esc((s.draft.quote.body||"").slice(0,400))}</div>`:""}</div>`;
-    if(s.conflicts?.length)h+=`<div class="full callout bad"><b>Not sent: I found new activity</b><ul class="ev">${s.conflicts.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>
-      <div class="acts"><button class="btn small" data-act="force">Send anyway</button><button class="btn small" data-act="discard">Cancel this email</button></div></div>`;
-    else if(s.state==="drafted")h+=`<div class="full acts"><button class="btn primary small" data-act="send">Send now</button><button class="btn small" data-act="discard">Discard</button>
-      <span class="d">Saved as a Gmail draft. It is checked again right before sending.</span></div>`;
+    if(s.safety?.length&&s.state!=="sent")h+=`<div class="full callout bad"><b>Can't be drafted like this</b><ul class="ev">${s.safety.map(e=>`<li>${esc(e)}</li>`).join("")}</ul></div>`;
+    const gm=s.draft_thread&&s.draft.in_thread?`https://mail.google.com/mail/u/0/#all/${esc(s.draft_thread)}`:"https://mail.google.com/mail/u/0/#drafts";
+    if(s.state==="drafted")h+=`${s.conflicts?.length?`<div class="full callout bad"><b>Since this draft was made</b><ul class="ev">${s.conflicts.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>Check the draft in Gmail before you send it, or discard it.</div>`:""}
+      <div class="full acts"><a class="btn primary small" href="${gm}" target="_blank" rel="noopener">Open in Gmail</a><button class="btn small" data-act="check">I sent it: check Gmail</button><button class="btn small" data-act="discard">Discard draft</button>
+      ${info.demo?`<button class="btn small" data-act="demo_send" title="Demo only: stands in for pressing Send in Gmail">Demo: press Send in Gmail</button>`:""}
+      <span class="d">Read it over in Gmail and press Send there. Sales Desk picks it up on the next scan.</span></div>`;
+    else if(s.conflicts?.length&&s.state==="pending")h+=`<div class="full callout bad"><b>Not drafted: I found new activity</b><ul class="ev">${s.conflicts.map(e=>`<li>${esc(e)}</li>`).join("")}</ul>
+      <div class="acts"><button class="btn small" data-act="force">Draft anyway</button></div></div>`;
   }
-  if(s.crm)h+=`<div class="full ${s.crm.startsWith("Recorded")?"okline":"err"}">${esc(s.crm)}${s.crm.startsWith("Recorded")?"":` <button class="btn small" data-act="retry">Retry</button>`}</div>`;
-  if(s.result&&s.state!=="pending")h+=`<div class="full ${s.state==="failed"?"err":"d"}">${esc(s.result)}</div>`;
+  const crmOk=s.crm&&(s.crm.startsWith("Recorded")||s.crm.startsWith("Goes to Cowork"));
+  if(s.crm)h+=`<div class="full ${crmOk?"okline":"err"}">${esc(s.crm)}${crmOk?"":` <button class="btn small" data-act="retry">Retry</button>`}</div>`;
+  if(s.result&&s.state!=="drafted"&&(s.state!=="pending"||s.result.includes("deleted")))h+=`<div class="full ${s.state==="failed"?"err":"d"}">${esc(s.result)}</div>`;
   return h+"</div>";
 }
 function outcomesHtml(t){
@@ -245,14 +255,14 @@ function renderDetail(){
        <td class="num"><input data-ik="unit_price" type="number" value="${esc(it.unit_price)}"></td></tr>`).join("")}</tbody></table>
      ${o.notes?`<div class="d" style="margin-top:8px;color:var(--muted)">Notes: ${esc(o.notes)}</div>`:""}</fieldset></section>`:""}
    ${routine.length?`<section><h3>Runs automatically when you approve</h3>${routine.map(s=>stepHtml(s,t)).join("")}</section>`:""}
-   ${gated.length?`<section class="gate"><h3>Emails: sent only with your OK, recorded in Zoho as a follow-up</h3>${gated.map(s=>stepHtml(s,t)).join("")}</section>`:""}`;
+   ${gated.length?`<section class="gate"><h3>Emails: made as Gmail drafts, you press Send in Gmail</h3>${gated.map(s=>stepHtml(s,t)).join("")}</section>`:""}`;
   if(view==="todo"||view==="upcoming"){
     const bar=document.createElement("div");bar.className="bar";
-    bar.innerHTML=view==="todo"?`<button class="btn primary" id="go-send">Approve &amp; send<kbd>E</kbd></button><button class="btn" id="go">Approve, keep drafts<kbd>A</kbd></button><button class="btn" id="skip">Skip<kbd>S</kbd></button>
-      <span class="hint">Routine steps run; emails are checked again for colleague activity before they go. <kbd>J</kbd><kbd>K</kbd> move</span>`
-      :`<button class="btn" id="go-send">Send the follow-up now (early)</button><span class="hint">Otherwise it moves to To decide on ${esc(day(t.due_at))}.</span>`;
+    bar.innerHTML=view==="todo"?`<button class="btn primary" id="go">Approve &amp; make Gmail drafts<kbd>A</kbd></button><button class="btn" id="skip">Skip<kbd>S</kbd></button>
+      <span class="hint">Checks Gmail for colleague activity first. Customer emails go to the customer only. You press Send in Gmail. <kbd>J</kbd><kbd>K</kbd> move</span>`
+      :`<button class="btn" id="go">Make the follow-up draft now (early)</button><span class="hint">Otherwise it moves to To decide on ${esc(day(t.due_at))}.</span>`;
     document.body.appendChild(bar);
-    $("#go-send").onclick=()=>approve(true); $("#go")&&($("#go").onclick=()=>approve(false)); $("#skip")&&($("#skip").onclick=skip);
+    $("#go").onclick=()=>approve(false); $("#skip")&&($("#skip").onclick=skip);
   }
   d.querySelectorAll("[data-act]").forEach(b=>b.onclick=()=>stepAction(b.closest(".step").dataset.step,b.dataset.act));
   d.querySelectorAll("[data-out]").forEach(b=>b.onclick=()=>outcome(b.dataset.out,b.textContent));
@@ -283,45 +293,45 @@ function askConflict(reasons){
   return new Promise(res=>{$("#conflict-list").innerHTML=reasons.map(r=>`<li>${esc(r)}</li>`).join("");const dl=$("#conflict");
     $("#c-force").onclick=()=>{dl.close();res(true)};$("#c-cancel").onclick=()=>{dl.close();res(false)};dl.showModal()});
 }
-async function approve(send){
+async function approve(force){
   const t=tasks[sel]; if(!t)return;
-  const body=collect(); const to=Object.values(body.steps).filter(s=>s.enabled&&s.draft).map(s=>s.draft.to);
-  if(send&&to.length&&!confirm(`Send ${to.length} email(s) to:\n${to.join("\n")}?`))return;
-  try{const j=await api(`tasks/${t.id}/approve`,{...body,send});
+  try{const j=await api(`tasks/${t.id}/approve`,{...collect(),force});
     const st=j.task.status;
-    toast(send?(st==="failed"?"Some steps failed. See the item.":"Done. Sent and recorded in Zoho."):(st==="awaiting_send"?"Done. Drafts are in “Waiting to send”.":st==="scheduled"?"Nothing sent. Back tomorrow.":"Done."));
+    toast(st==="awaiting_send"?"Draft(s) are in Gmail: open Gmail, read it over and press Send.":st==="scheduled"?"Nothing drafted. Back tomorrow.":st==="failed"?"Some steps failed. See the item.":"Done.");
     await load(st==="failed");
   }catch(e){
-    if(e.conflict){const go=await askConflict(e.conflict.conflict);
-      const step=(e.conflict.task.plan.find(s=>s.conflicts?.length)||{}).id;
-      if(go&&step){await sendStep(step,true)} else {toast("Kept as a draft in “Waiting to send”.");view="send";await load()}}
+    if(e.conflict){if(await askConflict(e.conflict.conflict))return approve(true);toast("Not drafted.");await load(true)}
     else toast(e.message)}
-}
-async function sendStep(step,force){
-  const t=tasks[sel];
-  try{await api(`tasks/${t.id}/send`,{step,draft:draftOf(step),force});toast("Sent and recorded in Zoho.");await load()}
-  catch(e){if(e.conflict){if(await askConflict(e.conflict.conflict))return sendStep(step,true);await load(true)}else toast(e.message)}
 }
 async function stepAction(step,act){
   const t=tasks[sel];
-  if(act==="send"){const d=draftOf(step);if(!confirm(`Send to ${d.to}?`))return;return sendStep(step,false)}
-  if(act==="force"){return sendStep(step,true)}
-  try{await api(`tasks/${t.id}/${act==="retry"?"retry":"discard"}`,{step});toast(act==="retry"?"Retried.":"Discarded.");await load(true)}catch(e){toast(e.message)}
+  if(act==="force")return approve(true);
+  const path={check:"check",demo_send:"demo_send",retry:"retry",discard:"discard"}[act];
+  try{const j=await api(`tasks/${t.id}/${path}`,{step});
+    toast({check:j.task.status==="awaiting_send"?"Not sent yet: it is still in your Gmail drafts.":"Picked up the email you sent.",
+      demo_send:"Sent (demo) and picked up.",retry:"Retried.",discard:"Draft discarded."}[act]);await load(true)}catch(e){toast(e.message)}
 }
 async function skip(){const t=tasks[sel];if(!t)return;try{await api(`tasks/${t.id}/skip`,{});toast("Skipped.");await load()}catch(e){toast(e.message)}}
 async function snooze(days){const t=tasks[sel];if(!t)return;try{await api(`tasks/${t.id}/snooze`,{days});toast(`Snoozed ${days} day(s).`);await load()}catch(e){toast(e.message)}}
-async function outcome(o,label){const t=tasks[sel];if(!t||!confirm(`Tag “${label}” in Zoho and stop follow-ups?`))return;
+async function outcome(o,label){const t=tasks[sel];if(!t||!confirm(`Tag “${label}”${info.crm?" in Zoho":" (Cowork does it from the next feed)"} and stop follow-ups?`))return;
   try{await api(`tasks/${t.id}/outcome`,{outcome:o});toast(`Tagged ${label}.`);await load()}catch(e){toast(e.message)}}
 async function ignore(){const t=tasks[sel];if(!t||!confirm("Never suggest follow-ups for this sender's domain?"))return;
   try{await api(`tasks/${t.id}/ignore`,{});toast("Ignored.");await load()}catch(e){toast(e.message)}}
-function busyEditing(){return !!document.querySelector("textarea:focus,input:focus")||$("#conflict").open}
+function busyEditing(){return !!document.querySelector("textarea:focus,input:focus")||$("#conflict").open||$("#feed-dlg").open}
+$("#feed").onclick=async()=>{const b=$("#feed");b.disabled=true;b.textContent="Writing…";
+  try{const j=await api("crm-feed",{});const f=j.feed;
+    $("#feed-text").innerHTML=f.path?`<p>${f.conversations} conversation(s), ${f.entries} note entr${f.entries===1?"y":"ies"}, ${f.new_inquiries} without an Inquiry number.</p>
+      <p>Saved as<br><code style="word-break:break-all">${esc(f.path)}</code></p><p class="d">In Cowork, say: <i>Apply the newest Gmail feed in this folder.</i></p>`
+      :`<p>Nothing new for Cowork since the last feed.</p>`;$("#feed-dlg").showModal()}
+  catch(e){toast(e.message)} b.disabled=false;b.textContent="Feed for Cowork"};
+$("#feed-ok").onclick=()=>$("#feed-dlg").close();
 $("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="Scanning…";setTimeout(()=>load(true),800);
   try{const j=await api("scan",{});const r=j.result||{};toast(r["already scanning"]?"Already scanning; the list updates as it goes.":"Scan: "+(Object.entries(r).map(([k,v])=>v+" "+k.replace("_"," ")).join(", ")||"nothing new"));await load(true)}
   catch(e){toast(e.message)} b.disabled=false;b.textContent="Scan Gmail"};
 document.addEventListener("keydown",e=>{
   if(e.target.closest("input,textarea,select,dialog")||e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==="j"&&sel<tasks.length-1){sel++;render()} else if(e.key==="k"&&sel>0){sel--;render()}
-  else if(view==="todo"&&e.key==="a")approve(false); else if(view==="todo"&&e.key==="e")approve(true);
+  else if(view==="todo"&&e.key==="a")approve(false);
   else if(view==="todo"&&e.key==="s")skip();
 });
 load();

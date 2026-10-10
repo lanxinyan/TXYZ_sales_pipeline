@@ -1,10 +1,11 @@
 """Carry out a decision made in the dashboard.
 
-approve -> routine steps run now (Zoho records, tags, labels); emails become Gmail drafts
-           (or are sent straight away with approve-and-send).
-send    -> one email is sent, after re-checking the thread and Zoho for anything a
-           colleague (or the customer) did since the plan was made. Every email to a
-           customer is then recorded as a follow-up note in Zoho.
+approve -> the thread (and Zoho) is checked again for anything a colleague or the customer
+           did since the plan was made; then routine steps run (tags, labels) and the emails
+           become Gmail drafts. Sales Desk never sends: you read the draft in Gmail and press
+           Send there.
+sync    -> on every scan: drafts you sent from Gmail are picked up (recorded for the CRM, next
+           follow-up scheduled); drafts you deleted come back to To decide.
 """
 from __future__ import annotations
 
@@ -16,6 +17,8 @@ from .conversation import (Who, display_name, first_line, forward_origin, fresh_
                            parse_date, short)
 from .models import Order
 from .pipeline import Pipeline, validate
+from .safety import addresses
+from .safety import check as check_safe
 from .store import Record, Store
 from .tasks import build_plan
 from .templates import PLACEHOLDER_REPLY
@@ -23,6 +26,7 @@ from .templates import PLACEHOLDER_REPLY
 log = logging.getLogger(__name__)
 
 STAGE_FOR_STEP = {"reply": "inquiry", "followup": "following_up", "followup_anyway": "following_up"}
+VIA_COWORK = "Goes to Cowork in the next Gmail feed"
 
 
 class Conflict(Exception):
@@ -42,7 +46,7 @@ class Executor:
     # ---------- decisions ----------
 
     def approve(self, thread_id: str, order: dict | None = None, steps: dict | None = None,
-                send: bool = False, force: bool = False) -> Record:
+                force: bool = False) -> Record:
         rec = self._get(thread_id)
         o = Order.model_validate(order) if order else rec.order
         plan = [dict(st) for st in rec.plan]
@@ -63,10 +67,23 @@ class Executor:
         issues = validate(o) if rec.kind == "order" else rec.issues
         if rec.kind == "order" and any(s["id"] == "zoho_so" and s["enabled"] for s in plan) and not o.order_code:
             raise ValueError("add the order/quote number before creating the Sales Order")
-        if send:
-            for st in plan:
-                if st.get("gated") and st["enabled"] and st["state"] in ("pending", "failed"):
-                    self._check_written(st)
+        emails = [st for st in plan if st.get("gated") and st["enabled"] and st["state"] in ("pending", "failed")]
+        for st in emails:
+            self._check_written(st)
+            check_safe(st["draft"], self.s)
+        if emails:
+            # Look again before anything is drafted: did a colleague or the customer write meanwhile?
+            reasons: list[str] = []
+            for st in emails:
+                found = [] if force else self.check(rec, st)
+                if found:
+                    st["conflicts"] = found
+                    reasons += [r for r in found if r not in reasons]
+                else:
+                    st.pop("conflicts", None)
+            if reasons:
+                self.store.update(thread_id, order=o, plan=plan, issues=issues)
+                raise Conflict(reasons)
         self.store.update(thread_id, order=o, plan=plan, issues=issues, status="approved")
 
         for st in plan:
@@ -77,8 +94,10 @@ class Executor:
                 continue
             try:
                 if st.get("gated"):
-                    st["draft_id"] = self._make_draft(self._get(thread_id), st)
+                    self._make_draft(self._get(thread_id), st)
                     st["state"] = "drafted"
+                    st["result"] = "In your Gmail drafts: read it over and press Send in Gmail"
+                    self.store.log(thread_id, f"Gmail draft ready: “{st['title']}” to {st['draft']['to']}")
                 else:
                     st["result"] = self._routine(self._get(thread_id), o, st)
                     st["state"] = "done"
@@ -94,60 +113,97 @@ class Executor:
             if not closed and not emailed and not any(x["state"] == "failed" for x in plan):
                 # Nothing went to the customer: keep the conversation alive, ask again tomorrow.
                 self.store.update(thread_id, plan=plan)
-                return self.snooze(thread_id, 1, why="no email was sent")
-        rec = self._settle(thread_id, plan)
-        if send:
-            for sid in [x["id"] for x in plan if x["state"] == "drafted"]:
-                current = self._get(thread_id)
-                if any(x["id"] == sid and x["state"] == "drafted" for x in current.plan):
-                    rec = self.send(thread_id, sid, force=force)
-        return rec
+                return self.snooze(thread_id, 1, why="no email was drafted")
+        if force:
+            self.store.log(thread_id, "Drafted although new activity was found (you chose “Draft anyway”)")
+        return self._settle(thread_id, plan)
 
-    def send(self, thread_id: str, step_id: str, draft: dict | None = None, force: bool = False) -> Record:
+    # ---------- what you did in Gmail ----------
+
+    def sync(self, thread_id: str) -> Record:
+        """Pick up drafts you sent (or deleted) in Gmail."""
         rec = self._get(thread_id)
         plan = rec.plan
-        st = _step(plan, step_id)
-        if st.get("state") not in ("drafted", "failed", "pending"):
-            raise ValueError(f"“{st['title']}” is {st.get('state')}; nothing to send")
-        if draft:
-            new = {**st["draft"], **{k: v for k, v in draft.items() if k in ("to", "cc", "subject", "body")}}
-            if new != st["draft"]:
-                if st.get("draft_id") and self.gmail:
-                    _quietly(self.gmail.delete_draft, st["draft_id"])
-                st["draft"], st["draft_edited"], st["draft_id"] = new, True, None
-        self._check_written(st)
-        if not force:
-            reasons = self.check(rec, st)
-            if reasons:
-                st["conflicts"] = reasons
-                self.store.update(thread_id, plan=plan)
-                raise Conflict(reasons)
-        if not self.gmail:
-            raise RuntimeError("Gmail is not connected")
-        try:
-            if not st.get("draft_id"):
-                st["draft_id"] = self._make_draft(rec, st)
-            sent_id = self.gmail.send_draft(st["draft_id"])
-        except Exception as e:
-            st["state"], st["result"] = "failed", f"not sent: {e}"
-            return self._settle(thread_id, plan)
-        to = st["draft"]["to"]
-        st.pop("conflicts", None)
-        st["state"], st["result"] = "sent", f"Sent to {to} on {short(_now())}"
+        if self.gmail is None:
+            return rec
+        sent_any = deleted_any = False
+        for st in plan:
+            if st.get("state") != "drafted":
+                continue
+            sent = self._sent_from_gmail(rec, st)
+            if sent is not None:
+                st.pop("conflicts", None)
+                st["state"], st["sent_id"] = "sent", sent.id
+                st["result"] = f"You sent it from Gmail on {short(sent.date)}"
+                self.store.log(thread_id, f"You sent “{st['title']}” from Gmail")
+                if st.get("crm_log"):
+                    st["crm"] = self._record_in_crm(rec, st, sent.id)
+                sent_any = True
+            elif st.get("draft_id") and _quietly(self.gmail.draft_exists, st["draft_id"]) is False:
+                st["state"], st["draft_id"] = "pending", None
+                st["result"] = "The Gmail draft was deleted without sending. Approve again to make a new one."
+                self.store.log(thread_id, f"Draft “{st['title']}” was deleted in Gmail")
+                deleted_any = True
+            elif rec.kind == "quote_request":
+                # Still waiting in Gmail: warn if the customer or a colleague wrote meanwhile.
+                try:
+                    found = self._new_activity(rec, self.gmail.get_thread(rec.thread_id, attachments=False))
+                except Exception as e:
+                    log.warning("activity check failed: %s", e)
+                    found = st.get("conflicts") or []
+                if found:
+                    st["conflicts"] = found
+                else:
+                    st.pop("conflicts", None)
         self.store.update(thread_id, plan=plan)
-        self.store.log(thread_id, f"Sent “{st['title']}” to {to}" + (" (sent anyway)" if force else ""))
-        if st.get("crm_log"):
-            st["crm"] = self._record_in_crm(rec, st, sent_id)
-            self.store.update(thread_id, plan=plan)
-        if rec.kind == "quote_request" and self.gmail is not None and not any(
-                x["state"] == "drafted" for x in plan if x is not st):
-            # Re-read the thread: the next follow-up is now scheduled from this email.
-            try:
-                self.pipeline.refresh(thread_id)
-                return self._get(thread_id)
-            except Exception as e:
-                log.warning("refresh after send failed: %s", e)
+        if (sent_any or deleted_any) and not any(x["state"] == "drafted" for x in plan):
+            if rec.kind == "quote_request" and sent_any:
+                # Re-read the thread: the next follow-up is now scheduled from the email you sent.
+                try:
+                    self.pipeline.refresh(thread_id)
+                    return self._get(thread_id)
+                except Exception as e:
+                    log.warning("refresh after sending failed: %s", e)
         return self._settle(thread_id, plan)
+
+    def sync_all(self, lock=None) -> dict[str, int]:
+        from contextlib import nullcontext
+
+        n = 0
+        for rec in self.store.list("awaiting_send"):
+            with lock or nullcontext():
+                try:
+                    before = self._get(rec.thread_id).status
+                    if self.sync(rec.thread_id).status != before:
+                        n += 1
+                except Exception as e:
+                    log.warning("could not check drafts of %s: %s", rec.thread_id, e)
+        return {"sent from Gmail": n} if n else {}
+
+    def _sent_from_gmail(self, rec: Record, st: dict):
+        """The email you sent from this draft, if you have."""
+        tid = st.get("draft_thread") or (rec.thread_id if st["draft"].get("in_thread") else None)
+        if not tid:
+            return None
+        try:
+            thread = self.gmail.get_thread(tid, attachments=False)    # unsent drafts are left out
+        except Exception as e:
+            log.warning("could not read thread %s: %s", tid, e)
+            return None
+        since = parse_date(st.get("drafted_at"))
+        since = since - timedelta(minutes=1) if since else None
+        wanted = set(addresses(st["draft"].get("to")))
+        messages = thread.messages
+        if since is None:   # a draft from an older version: only emails newer than the plan count
+            ids = [m.id for m in messages]
+            known = rec.conv.newest_message_id if rec.conv else None
+            messages = messages[ids.index(known) + 1:] if known in ids else []
+        for m in messages:
+            at = parse_date(m.date)
+            if (m.sender.lower() == self.s.user_email and wanted & {r.lower() for r in m.to + m.cc}
+                    and (since is None or (at and at >= since))):
+                return m
+        return None
 
     def discard(self, thread_id: str, step_id: str) -> Record:
         rec = self._get(thread_id)
@@ -186,18 +242,23 @@ class Executor:
         if not email:
             raise ValueError("no customer email on this item")
         if self.crm is None:
-            raise RuntimeError("Zoho is not connected, so the tag can't be set")
-        tag = self.crm.set_stage(email, outcome, **_create_info(rec))
-        if not tag:
-            raise ValueError(f"no Zoho tag is mapped for '{outcome}' (run `sales-pipeline zoho-setup`)")
-        self.crm.log_followup(email, f"Marked {tag} in Sales Desk", f"Marked {tag} by {self.s.sender_name}.\n{rec.thread_url}",
-                              **_create_info(rec))
+            tag = self.pipeline.tags.get(outcome)
+            if not tag:
+                raise ValueError(f"no tag is set up for '{outcome}'")
+            self.store.add_feed_item(thread_id, f"tag {tag}")
+        else:
+            tag = self.crm.set_stage(email, outcome, **_create_info(rec))
+            if not tag:
+                raise ValueError(f"no Zoho tag is mapped for '{outcome}' (run `sales-pipeline zoho-setup`)")
+            self.crm.log_followup(email, f"Marked {tag} in Sales Desk",
+                                  f"Marked {tag} by {self.s.sender_name}.\n{rec.thread_url}", **_create_info(rec))
         for st in rec.plan:
             if st.get("state") == "drafted" and st.get("draft_id") and self.gmail:
                 _quietly(self.gmail.delete_draft, st["draft_id"])
                 st["state"] = "skipped"
         self.store.update(thread_id, status="done", plan=rec.plan, issues=[f"closed: {tag}"])
-        self.store.log(thread_id, f"Tagged {tag} in Zoho; follow-ups stopped")
+        self.store.log(thread_id, f"Tagged {tag} " + ("in Zoho" if self.crm else "(for Cowork, in the next Gmail feed)")
+                       + "; follow-ups stopped")
         if outcome == "ordered":
             self.pipeline.close_customer_threads(email, rec.order_code, f"customer ordered ({tag})")
         return self._get(thread_id)
@@ -291,9 +352,13 @@ class Executor:
             self.pipeline.close_customer_threads(email, o.order_code, "order placed")
             return f"Sales Order {res['zoho_id']} ({res['status']})"
         if sid in ("tag_ordered", "tag_lost", "tag_no_response"):
-            if self.crm is None:
-                raise RuntimeError("Zoho is not connected")
             stage = sid[4:]
+            if self.crm is None:
+                tag = self.pipeline.tags.get(stage, stage)
+                self.store.add_feed_item(rec.thread_id, f"tag {tag}")
+                if stage == "ordered":
+                    self.pipeline.close_customer_threads(email, o.order_code, f"customer ordered ({tag})")
+                return f"{tag}: {VIA_COWORK.lower()}"
             tag = self.crm.set_stage(email, stage, **_create_info(rec))
             if stage == "ordered":
                 self.pipeline.close_customer_threads(email, o.order_code, f"customer ordered ({tag})")
@@ -313,16 +378,19 @@ class Executor:
             return label
         raise ValueError(f"unknown step {sid}")
 
-    def _make_draft(self, rec: Record, st: dict) -> str:
+    def _make_draft(self, rec: Record, st: dict) -> None:
         if not self.gmail:
             raise RuntimeError("Gmail is not connected")
         d = st["draft"]
         to = _split(d.get("to"))
         if not to:
             raise ValueError("the email has no recipient")
+        check_safe(d, self.s)          # customers only, no Chinese: checked on the final text
         thread_id = (st.get("target_thread") or rec.thread_id) if d.get("in_thread") else None
-        return self.gmail.create_draft(thread_id, to, d["subject"], d["body"], d.get("in_reply_to", ""),
+        made = self.gmail.create_draft(thread_id, to, d["subject"], d["body"], d.get("in_reply_to", ""),
                                        _split(d.get("cc")), d.get("quote"))
+        st["draft_id"], st["draft_thread"] = made["id"], made.get("thread_id") or thread_id
+        st["drafted_at"] = _now()
 
     def _record_in_crm(self, rec: Record, st: dict, sent_id: str) -> str:
         """Every email to a customer becomes a follow-up note in Zoho (+ lifecycle tag)."""
@@ -335,7 +403,7 @@ class Executor:
         title = f"{title} (email) {datetime.now(timezone.utc):%Y-%m-%d}"
         st["sent_id"] = sent_id
         if self.crm is None:
-            return "Not recorded in Zoho (not connected); it will be recorded on the next scan once it is"
+            return VIA_COWORK
         email = _split(st["draft"]["to"])[0]
         try:
             content = f"{st['draft']['body']}\n\nTo: {st['draft']['to']}\nSubject: {st['draft']['subject']}\n{rec.thread_url}"
@@ -368,8 +436,10 @@ class Executor:
 
     def _settle(self, thread_id: str, plan: list[dict]) -> Record:
         states = {s["state"] for s in plan}
+        unsent = any(s.get("gated") and s.get("enabled") and s["state"] == "pending" for s in plan)
         status = ("failed" if "failed" in states else
-                  "awaiting_send" if "drafted" in states else "done")
+                  "awaiting_send" if "drafted" in states else
+                  "ready" if unsent else "done")
         rec = self._get(thread_id)
         self.store.update(thread_id, plan=plan, status=status, zoho_id=rec.zoho_id)
         return self._get(thread_id)

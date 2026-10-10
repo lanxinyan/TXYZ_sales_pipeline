@@ -11,6 +11,7 @@
   run                  scan, then push everything ready if AUTO_PUSH=true
   ui [--demo]          open the review dashboard (http://127.0.0.1:8765)
   followups            what is due: replies, follow-ups 1-4, close-outs
+  crm-feed [--all]     write the Gmail feed for Cowork (what to update in Zoho) into CRM_FEED_DIR
   gmail-auth           one-time Gmail sign-in (opens a browser)
   zoho-auth CODE       one-time: trade a Zoho self-client grant code for a refresh token
   zoho-setup [--write] read your Zoho tags (已下单, 不买了 ...) and map them to the follow-up stages
@@ -107,14 +108,17 @@ def _check(s: Settings) -> None:
             fix = str(e) if str(e) == NO_API_ACCESS else f"check ZOHO_CLIENT_ID/SECRET/REFRESH_TOKEN in .env ({e})"
             line(False, "Zoho connection", fix)
     else:
-        line(False, "Zoho connected", "README, step 4: create a Self Client, then `sales-pipeline zoho-auth <code>`")
-    if zoho_ok:
+        line(True, "Zoho: updated by Cowork from the Gmail feed (direct API access isn't needed for now)")
+    feed_set = s.crm_feed_dir != "cowork_feed"
+    line(feed_set, f"Feed for Cowork goes to {os.path.abspath(s.crm_feed_dir)}",
+         "set CRM_FEED_DIR in .env to the folder Cowork works in (README, step 6)")
+    if zoho_ok and s.zoho_direct_updates:
         line(os.path.exists(s.zoho_tag_file), f"tag map {s.zoho_tag_file}",
              "run `sales-pipeline zoho-setup --write` (until then only 已下单 and 不买了 are used)")
     line(True, "Claude: " + ("on" if _llm(s) else "off (optional; order emails are read by the built-in parser)"))
     print()
     if gmail_ok:
-        print("Ready: start it with  sales-pipeline ui" + ("" if zoho_ok else "   (CRM steps wait until Zoho is connected)"))
+        print("Ready: start it with  sales-pipeline ui")
     else:
         print("Next: connect Gmail. Meanwhile try it with made-up data:  sales-pipeline ui --demo")
 
@@ -164,6 +168,10 @@ def main(argv: list[str] | None = None) -> None:
 
     sub.add_parser("run")
     sub.add_parser("followups")
+    cf = sub.add_parser("crm-feed")
+    cf.add_argument("--all", action="store_true", help="include what earlier feeds already had")
+    cf.add_argument("--days", type=int, default=30, help="how far back to look (default 30)")
+    cf.add_argument("--out", help="folder to write into (default CRM_FEED_DIR)")
     zs = sub.add_parser("zoho-setup")
     zs.add_argument("--write", action="store_true", help="save the suggested map to ZOHO_TAG_FILE")
     ui = sub.add_parser("ui")
@@ -275,8 +283,8 @@ def main(argv: list[str] | None = None) -> None:
         except Exception as e:
             sys.exit(f"Couldn't connect to Gmail: {e}\n"
                      "Run `sales-pipeline check` to see what is missing (README, step 3).")
-        if pipe.zoho is None:
-            print("Note: Zoho isn't connected yet; CRM steps will wait until it is (README, step 4).")
+        print(f"Zoho is updated by Cowork: use 'Feed for Cowork' on the page (file goes to "
+              f"{os.path.abspath(s.crm_feed_dir)}).")
         if pipe.llm is None:
             print("Note: Claude is off (no ANTHROPIC_API_KEY); order emails are read by the built-in parser.")
         serve(App(s, store, pipe, scanner=pipe.scan), a.port or 8765, s.scan_interval_min, open_browser=not a.no_browser)
@@ -293,6 +301,9 @@ def main(argv: list[str] | None = None) -> None:
             s.use_llm = False
         pipe = _pipeline(s, store)
         counts = pipe.scan(a.query, a.limit, a.rescan)
+        from .actions import Executor
+
+        counts.update(Executor(s, store, gmail=pipe.gmail, pipeline=pipe).sync_all())
         print("scan done:", ", ".join(f"{v} {k}" for k, v in counts.items()) or "nothing new")
     elif a.cmd == "list":
         for r in store.list(a.status):
@@ -348,6 +359,19 @@ def main(argv: list[str] | None = None) -> None:
                 print(tid, res)
         else:
             print("Review in the dashboard (`sales-pipeline ui`) or `sales-pipeline followups`.")
+    elif a.cmd == "crm-feed":
+        from .actions import Executor
+        from .feed import export
+
+        pipe = _pipeline(s, store)
+        Executor(s, store, gmail=pipe.gmail, pipeline=pipe).sync_all()   # pick up drafts you sent
+        pipe.scan()
+        res = export(pipe, everything=a.all, days=a.days, out_dir=a.out)
+        if res["path"]:
+            print(f"Gmail feed for Cowork: {res['conversations']} conversation(s), {res['entries']} note entries, "
+                  f"{res['new_inquiries']} without an Inquiry number\n  {res['path']}")
+        else:
+            print("Nothing new for Cowork since the last feed.")
     elif a.cmd == "followups":
         from .tasks import action_label, level
 

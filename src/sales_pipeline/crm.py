@@ -1,5 +1,5 @@
 """The customer's record in Zoho: find it (whoever created it), keep its
-lifecycle tag right (已下单, 不买了 ...), and record every reply as a follow-up note."""
+lifecycle tag right (已下单, 不买了, No reply ...), and record every reply as a follow-up note."""
 from __future__ import annotations
 
 import json
@@ -20,7 +20,7 @@ STAGES = {
     "lost": "customer is not buying",
     "no_response": "no answer after all follow-ups",
 }
-DEFAULT_TAGS = {"ordered": "已下单", "lost": "不买了"}
+DEFAULT_TAGS = {"ordered": "已下单", "lost": "不买了", "no_response": "No reply"}
 # How existing Zoho tag names are recognised when building the map.
 SUGGEST = {
     "ordered": r"已下单|下单|已订|成交|ordered|won",

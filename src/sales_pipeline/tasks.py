@@ -1,10 +1,10 @@
 """Turn a thread into a to-do item: what kind it is, how urgent, and the plan
 of steps that run once you approve.
 
-Steps are either *routine* (Zoho records, tags, Gmail labels - run when you
-approve) or *gated* (anything a customer or accounting will read - prepared as
-a Gmail draft and sent only when you approve sending it). Every gated email
-to a customer is recorded as a follow-up in Zoho after it is sent."""
+Steps are either *routine* (tags, Gmail labels - run when you approve) or
+*gated* (anything a customer or accounting will read). Gated emails become Gmail
+drafts; you read them over and press Send in Gmail yourself. Emails to a customer
+go to customers only (no colleagues in To/Cc) and never carry Chinese text."""
 from __future__ import annotations
 
 import re
@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from .config import Settings
 from .conversation import fresh_text, parse_date, short
 from .models import Conversation, EmailThread, Order
+from .safety import customers_only, has_chinese
 from .templates import Template, followup_variants, render
 
 INQUIRY_SUBJECT = re.compile(
@@ -28,6 +29,7 @@ class PlanContext:
     invoice: dict | None = None          # conversation.invoice_status() for orders
     customer_thread: dict | None = None  # the customer's own thread for an order: {thread_id, conv}
     crm_record: tuple | None = None      # (module, id) when the customer is already in Zoho
+    crm: bool = True                     # False: Zoho changes go to Cowork via the Gmail feed
 
 
 # ---------- what is it ----------
@@ -179,8 +181,12 @@ def _draft(t: Template, vals: dict, to: list[str], cc: list[str], subject: str, 
                                          for v in (variants or [t])]}
 
 
+def _strip_fwd(subject: str) -> str:
+    return re.sub(r"^\s*((fwd?|fw|转发)\s*[:：]\s*)+", "", subject or "", flags=re.I)
+
+
 def _quote(prev: dict | None) -> dict | None:
-    if not prev:
+    if not prev or has_chinese(prev.get("body")):
         return None
     d = parse_date(prev.get("date"))
     if d:
@@ -197,6 +203,7 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
     steps: list[dict] = []
     who = vals["company"] or vals["customer_email"] or "customer"
     tag = ctx.tags
+    where = "in Zoho" if ctx.crm else "(sent to Cowork in the Gmail feed)"
 
     if kind == "order":
         total = vals["total"]
@@ -206,7 +213,7 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                                  "Account/Contact/Products found or created, quote PDF attached"))
         if tag.get("ordered") and vals["customer_email"]:
             steps.append(dict(id="tag_ordered", gated=False, enabled=True,
-                              title=f"Tag the customer {tag['ordered']} in Zoho and stop their follow-ups",
+                              title=f"Tag the customer {tag['ordered']} {where} and stop their follow-ups",
                               detail="Other lifecycle tags (e.g. " + ", ".join(
                                   v for k, v in tag.items() if k != "ordered") + ") are removed"))
         steps.append(dict(id="label", gated=False, enabled=True, title="Label email Zoho/Synced", detail=""))
@@ -221,7 +228,7 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                         else "Sent as a new email (no earlier conversation found)"),
                 target_thread=ct.get("thread_id"),
                 draft=_draft(T["order_confirmation"], vals, [vals["customer_email"]],
-                             [c for c in (prev or {}).get("cc", []) if c],
+                             customers_only((prev or {}).get("customer_cc", []), s),
                              _re(prev["subject"]) if prev else f"Order confirmation: {order.order_code or ''}".strip(),
                              thread=bool(prev), in_reply_to=(prev or {}).get("rfc_id", ""))))
         if s.accounting_email:
@@ -247,7 +254,7 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
         out = conv.last_outbound or {}
         n_total = len(s.followup_days)
         if conv.stage == "reply_needed":
-            if not conv.replied_ever:
+            if not conv.replied_ever and ctx.crm:
                 ref = conv.crm_refs[-1] if conv.crm_refs else None
                 crm_step = dict(id="crm_inquiry", gated=False, enabled=ref is None and ctx.crm_record is None,
                                 title="Add the inquiry to Zoho" + (f" and tag {tag['inquiry']}" if tag.get("inquiry") else ""),
@@ -260,21 +267,25 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                                           "your emails will be recorded there. Nothing to do.")
                     crm_step["colleague"] = True
                 steps.append(crm_step)
+            if not conv.replied_ever:
                 t = T["first_reply"]
             elif "declined" in signals:
                 t = T["decline_reply"]
             else:
                 t = T["reply"]
+            # Kept in the same Gmail thread (so the conversation stays together), but it goes to the
+            # customer only: a forward's internal recipients are not copied and nothing is quoted.
             steps.append(dict(
                 id="reply", gated=True, enabled=True, crm_log=True,
                 title="First reply to the customer (same day)" if not conv.replied_ever else "Reply to the customer",
                 detail=("Fill in your answer before sending." if t.key == "reply" else
                         f"Template: {t.label}"),
-                draft=_draft(t, vals, [email], inbound.get("cc", []), _re(inbound.get("subject") or subject),
+                draft=_draft(t, vals, [email], customers_only(inbound.get("customer_cc", []), s),
+                             _re(_strip_fwd(inbound.get("subject") or subject)),
                              in_reply_to=inbound.get("rfc_id", ""))))
             if "declined" in signals and tag.get("lost"):
                 steps.append(dict(id="tag_lost", gated=False, enabled=True,
-                                  title=f"Tag {tag['lost']} in Zoho and stop follow-ups",
+                                  title=f"Tag {tag['lost']} {where} and stop follow-ups",
                                   detail=f"Customer: “{signals['declined']}”"))
         elif conv.stage == "awaiting_customer":
             n = conv.followup_no
@@ -287,7 +298,8 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                        + (f"Skipped ahead to follow-up {n} because of the time that has passed. "
                           if n > max(conv.touches, 1) else "")
                        + "Your previous email is quoted underneath.",
-                draft=_draft(variants[0], vals, out.get("to") or [email], out.get("cc", []),
+                draft=_draft(variants[0], vals, customers_only(out.get("to"), s) or [email],
+                             customers_only(out.get("customer_cc", []), s),
                              _re(out.get("subject") or subject), in_reply_to=out.get("rfc_id", ""),
                              quote=_quote(out), variants=variants)))
         elif conv.stage in ("declined", "exhausted"):
@@ -296,7 +308,7 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                 stage = "no_response"
             if tag.get(stage):
                 steps.append(dict(id=f"tag_{stage}", gated=False, enabled=True,
-                                  title=f"Tag {tag[stage]} in Zoho and stop follow-ups",
+                                  title=f"Tag {tag[stage]} {where} and stop follow-ups",
                                   detail=(f"Customer: “{signals.get('declined', '')}”" if conv.stage == "declined"
                                           else f"No answer after {n_total} follow-ups")))
             if conv.stage == "declined":
@@ -304,7 +316,8 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                 steps.append(dict(
                     id="followup_anyway", gated=True, enabled=False, crm_log=True,
                     title="Or: follow up anyway", detail="Tick this instead if the customer is still in play.",
-                    draft=_draft(variants[0], vals, out.get("to") or [email], out.get("cc", []),
+                    draft=_draft(variants[0], vals, customers_only(out.get("to"), s) or [email],
+                                 customers_only(out.get("customer_cc", []), s),
                                  _re(out.get("subject") or subject), in_reply_to=out.get("rfc_id", ""),
                                  quote=_quote(out), variants=variants)))
 

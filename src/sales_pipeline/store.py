@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TE
 CREATE TABLE IF NOT EXISTS ignored (domain TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS crm_logged (message_id TEXT PRIMARY KEY, thread_id TEXT, note_id TEXT, ts TEXT);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+CREATE TABLE IF NOT EXISTS feed_sent (key TEXT PRIMARY KEY, ts TEXT);
+CREATE TABLE IF NOT EXISTS feed_items (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, thread_id TEXT, text TEXT,
+                                       exported INTEGER DEFAULT 0);
 """
 FIELDS = ["thread_id", "subject", "thread_url", "message_count", "status", "order_code", "order_json",
           "issues", "zoho_id", "error", "updated_at", *EXTRA_COLUMNS]
@@ -174,6 +177,32 @@ class Store:
     def meta(self, key: str) -> str | None:
         rows = self._all("SELECT value FROM meta WHERE key=?", (key,))
         return rows[0]["value"] if rows else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self._write("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))
+
+    # ---------- what has already gone to Cowork in a Gmail feed ----------
+
+    def feed_seen(self, key: str) -> bool:
+        return bool(self._all("SELECT 1 FROM feed_sent WHERE key=?", (key,)))
+
+    def mark_feed(self, keys: list[str]) -> None:
+        with self._lock:
+            self.db.executemany("INSERT OR IGNORE INTO feed_sent VALUES (?,?)", [(k, _now()) for k in keys])
+            self.db.commit()
+
+    def add_feed_item(self, thread_id: str, text: str) -> None:
+        """A decision made in Sales Desk (e.g. tag 不买了) for Cowork to carry out in Zoho."""
+        self._write("INSERT INTO feed_items (ts, thread_id, text) VALUES (?,?,?)", (_now(), thread_id, text))
+
+    def feed_items(self, pending_only: bool = True) -> list[dict]:
+        q = "SELECT id, ts, thread_id, text FROM feed_items" + (" WHERE exported=0" if pending_only else "")
+        return [dict(r) for r in self._all(q + " ORDER BY id")]
+
+    def mark_items_exported(self, ids: list[int]) -> None:
+        with self._lock:
+            self.db.executemany("UPDATE feed_items SET exported=1 WHERE id=?", [(i,) for i in ids])
+            self.db.commit()
 
 
 def _now() -> str:

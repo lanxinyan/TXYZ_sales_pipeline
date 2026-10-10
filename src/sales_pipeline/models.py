@@ -115,6 +115,7 @@ class Conversation(BaseModel):
     # the customer's last email: gmail_id, rfc_id, sender, subject, date, cc (our people on it)
     last_inbound: Optional[dict] = None
     inquiry_forward: bool = False   # started as a forwarded website/email inquiry
+    asked_for_quote: bool = False   # the customer asked us for a quote / price
     salutation: Optional[dict] = None   # how we last greeted them: {"word": "Dear", "name": "Dr. Okafor"}
     last_outbound_at: Optional[str] = None
     last_outbound_by: Optional[str] = None

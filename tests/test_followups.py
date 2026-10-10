@@ -80,7 +80,7 @@ def test_first_reply_uses_the_template_and_copies_the_team(demo):
     assert draft["to"] == "rmoreau@northfield.example"
     assert "inquiry@creative-biostructure.com" in draft["cc"] and YANI in draft["cc"]
     assert draft["body"].startswith("Hi Robin,") and "Liposome Formulation" in draft["body"]
-    assert "1-516-512-3133" in draft["body"]
+    assert "1-631-559-9269" in draft["body"]
     ex.approve("demo-inquiry", send=True)
     # Yani's existing CRM record is reused, not duplicated, and gets the note + stage tag
     assert sum(1 for r in zoho.records.values() if r.get("Email") == "rmoreau@northfield.example") == 1
@@ -193,3 +193,13 @@ def test_a_handled_order_does_not_come_back_when_colleagues_reply(demo):
         datetime.now(timezone.utc).isoformat(), "样品表格 见附件"))
     pipe.scan()
     assert store.get("demo-order-hold").status == "done"
+
+
+def test_first_reply_sees_a_zoho_record_even_without_a_crm_email(demo, settings):
+    store, gmail, zoho, pipe, _ = demo
+    zoho._add("Leads", {"Last_Name": "Moss", "Email": "c.moss@coastal-demo.example"})
+    t = gmail.threads["demo-upcoming"]
+    t.messages[:] = t.messages[:1]                               # only the customer's inquiry so far
+    pipe.refresh("demo-upcoming")
+    step = store.get("demo-upcoming").plan[0]
+    assert step["id"] == "crm_inquiry" and not step["enabled"] and "Already in Zoho" in step["detail"]

@@ -19,10 +19,10 @@ def test_stage_three_depends_on_whether_a_quote_was_sent():
 
 def test_render_fills_details_and_blanks_unknowns():
     T = load()
-    text = render(T["followup_1"], greeting="Hi Robin,", sender_name="Tony", sender_phone="1-516-512-3133",
+    text = render(T["followup_1"], greeting="Hi Robin,", sender_name="Tony", sender_phone="1-631-559-9269",
                   signature="Best regards,\n\nTony")
     assert text.startswith("Hi Robin,\n\nThis is Tony.")
-    assert "1-516-512-3133" in text and text.rstrip().endswith("Tony")
+    assert "1-631-559-9269" in text and text.rstrip().endswith("Tony")
     assert "{" not in render(T["first_reply"])                 # missing values never leak braces
 
 

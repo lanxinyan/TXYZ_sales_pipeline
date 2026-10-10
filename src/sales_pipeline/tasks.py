@@ -27,6 +27,7 @@ class PlanContext:
     tags: dict[str, str] = field(default_factory=dict)
     invoice: dict | None = None          # conversation.invoice_status() for orders
     customer_thread: dict | None = None  # the customer's own thread for an order: {thread_id, conv}
+    crm_record: tuple | None = None      # (module, id) when the customer is already in Zoho
 
 
 # ---------- what is it ----------
@@ -38,7 +39,8 @@ def classify(thread: EmailThread, order: Order, conv: Conversation | None, s: Se
     if not conv or not conv.customer_emails:
         return "other"
     ours = re.search(s.order_code_regex, thread.subject + "\n" + "\n".join(fresh_text(m.body) for m in thread.messages))
-    if conv.quote_sent or conv.inquiry_forward or INQUIRY_SUBJECT.search(thread.subject) or ours:
+    if (conv.quote_sent or conv.inquiry_forward or conv.asked_for_quote or ours
+            or INQUIRY_SUBJECT.search(thread.subject)):
         return "quote_request"
     return "other"
 
@@ -247,11 +249,15 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
         if conv.stage == "reply_needed":
             if not conv.replied_ever:
                 ref = conv.crm_refs[-1] if conv.crm_refs else None
-                crm_step = dict(id="crm_inquiry", gated=False, enabled=ref is None,
+                crm_step = dict(id="crm_inquiry", gated=False, enabled=ref is None and ctx.crm_record is None,
                                 title="Add the inquiry to Zoho" + (f" and tag {tag['inquiry']}" if tag.get("inquiry") else ""),
                                 detail=f"{conv.customer_name or email} · {conv.company or ''} · {conv.topic or ''}")
                 if ref:
                     crm_step["detail"] = f"Already in Zoho: {ref['ref']} (by {ref['who']}, {short(ref['at'])}). Nothing to do."
+                    crm_step["colleague"] = True
+                elif ctx.crm_record:
+                    crm_step["detail"] = (f"Already in Zoho ({ctx.crm_record[0]} record {ctx.crm_record[1]}); "
+                                          "your emails will be recorded there. Nothing to do.")
                     crm_step["colleague"] = True
                 steps.append(crm_step)
                 t = T["first_reply"]

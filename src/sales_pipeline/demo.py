@@ -260,8 +260,13 @@ class DemoZoho:
         self.records[(module, rid)] = {"id": rid, "Tag": [], **rec}
         return rid
 
-    def find_by_email(self, module, email):
+    def find_by_email(self, module, email, fields=None):
         return [r for (m, _), r in self.records.items() if m == module and r.get("Email", "").lower() == email]
+
+    def module_fields(self, module):
+        from .crm import STANDARD_FIELDS
+
+        return STANDARD_FIELDS
 
     def create(self, module, record, trigger=True):
         rid = self._add(module, dict(record))

@@ -59,7 +59,7 @@ class Executor:
         if order and rec.kind == "order":
             # Re-word the drafts from the corrected order, keeping the user's choices.
             plan = build_plan(rec.kind, o, rec.conv, rec.subject, self.s,
-                              self.pipeline._context(rec.kind, o, None), plan)
+                              self.pipeline._context(rec.kind, o, None, rec.conv), plan)
         issues = validate(o) if rec.kind == "order" else rec.issues
         if rec.kind == "order" and any(s["id"] == "zoho_so" and s["enabled"] for s in plan) and not o.order_code:
             raise ValueError("add the order/quote number before creating the Sales Order")

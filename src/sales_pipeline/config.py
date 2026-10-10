@@ -63,15 +63,16 @@ class Settings:
     zoho_so_status: str = "Created"
     zoho_auto_create_products: bool = True
     zoho_generic_product_id: str = ""
-    # Where customers live in Zoho, searched in this order (Leads = "Inquiries"
-    # in many setups). New inquiries are created in the first one.
-    zoho_customer_modules: list[str] = field(default_factory=lambda: ["Leads", "Contacts"])
+    # Where customers live in Zoho (module API names), searched in this order; new
+    # inquiries are created in the first. Empty = find them automatically: the module
+    # labelled Inquiries/询价, then Leads and Contacts if your account has them.
+    zoho_customer_modules: list[str] = field(default_factory=list)
     # Lifecycle tags (stage -> Zoho tag); `sales-pipeline zoho-setup --write` fills this file.
     zoho_tag_file: str = "zoho_tags.json"
 
     # Who the emails come from
     sender_name: str = "Tony"
-    sender_phone: str = "1-516-512-3133"
+    sender_phone: str = "1-631-559-9269"
     email_signature: str = "Best regards,\n\n{sender_name}"
     accounting_email: str = "accounting@creative-biomart.com"
     templates_file: str = ""

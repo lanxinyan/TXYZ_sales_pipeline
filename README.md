@@ -45,7 +45,8 @@ previous email quoted underneath and the same colleagues copied. Follow-ups that
   again. Your notes go on their record.
 - If the customer is already tagged 已下单 / 不买了 in Zoho, no follow-ups are suggested. If they write
   back anyway, you still see it.
-- Threads where you're only copied and a colleague is handling the customer are left to them.
+- A conversation belongs to whoever answers the customer. If a colleague answered and you haven't written to
+  that customer, it's left to them, even when the inquiry was forwarded to both of you.
 
 **Zoho CRM.**
 
@@ -72,13 +73,40 @@ cp .env.example .env        # then fill it in
    `ZohoCRM.modules.ALL,ZohoCRM.settings.READ`. Put the client id and secret in `.env`, run
    `sales-pipeline zoho-auth <code>`, and paste the printed `ZOHO_REFRESH_TOKEN` into `.env`.
    If your account isn't on the US data center, change `ZOHO_ACCOUNTS_URL` / `ZOHO_API_DOMAIN`.
-3. **Your tags**: `sales-pipeline zoho-setup` lists the tags already in your Zoho and the module that holds
-   inquiries. It shows which tag it will use for each stage (已下单 = ordered, 不买了 = not buying, 跟进中,
+3. **Your modules and tags**: `sales-pipeline zoho-setup` lists every Zoho module (the name you see next to its
+   internal name), the one that holds your inquiries, and the tags already in use (see *Where customers live in
+   Zoho* below). It shows which tag it will use for each stage (已下单 = ordered, 不买了 = not buying, 跟进中,
    已报价, 询价 … if they exist). `sales-pipeline zoho-setup --write` saves the map to `zoho_tags.json`;
    edit that file to change it. Until then only 已下单 and 不买了 are used, and no new tags are invented.
-4. **You**: `SENDER_NAME`, `SENDER_PHONE` and `EMAIL_SIGNATURE` in `.env` go into every email.
+4. **You**: `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template) and
+   `EMAIL_SIGNATURE` in `.env` go into every email.
 5. **Claude** (optional): `ANTHROPIC_API_KEY` lets Claude read order emails and their PDF quotes/POs.
    Without it (`USE_LLM=false`), order forms are read by the built-in parser, and follow-ups work the same.
+
+## Where customers live in Zoho
+
+Zoho has built-in modules with fixed internal names (*API names*): `Leads`, `Contacts`, `Accounts`, `Deals`.
+An account can rename them, hide them, or add its own modules. You won't find a tab called "Leads" if yours
+was renamed or hidden. The records your colleagues create, named like `Inquiry-0012345`, live in a module
+shown in Zoho as something like *Inquiries* / *询价*. That's either the renamed Leads module or a custom module.
+
+Sales Desk works this out on its own:
+
+1. It looks for the module labelled Inquiries / 询价, whatever its internal name.
+2. Then it tries `Leads`, then `Contacts`, if your account has them.
+3. In each module it finds the field that holds the email address.
+4. New inquiries are created in the first module, filling only fields that module has. An auto-numbered name
+   like `Inquiry-0012345` is left for Zoho to assign.
+
+To see the names yourself:
+
+- **Address bar**: open the module's tab in Zoho and look at the URL, `…/crm/org…/tab/<name>/…`. `tab/Leads`
+  means it's the built-in Leads module; something like `tab/CustomModule3` means a custom module.
+- **Zoho Setup** (gear icon) → Developer Hub (*Developer Space* in older versions) → APIs → **API Names** lists
+  each module's displayed name next to its API name.
+- **`sales-pipeline zoho-setup`** prints the same list and marks the modules it will use.
+
+To override the choice, set `ZOHO_CUSTOMER_MODULES` in `.env` (comma-separated API names, searched in order).
 
 ## Daily use: the dashboard
 
@@ -125,7 +153,7 @@ sales-pipeline push CBSRX09242501B-2             # create it
   first.
 - A reply that still says `[write your reply here]` can't be sent.
 - Sales Orders are created once: an existing one with the same order number is linked, not duplicated.
-- Customer records are found by email across `ZOHO_CUSTOMER_MODULES` (e.g. Leads, then Contacts) before one is
+- Customer records are found by email across the customer modules (see below) before one is
   created.
 - The page only listens on your own computer (127.0.0.1). Secrets (`.env`, `credentials.json`,
   `token.json`) and the local database are git-ignored.

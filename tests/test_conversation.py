@@ -154,3 +154,29 @@ def test_follow_ups_greet_the_customer_the_way_we_last_did():
     assert c.events[0]["text"] == "Please find our quotation attached."      # timeline skips the greeting
     t2 = EmailThread("t", "Re: Quote", [M(ME, [CUST], "Hi, Scott\n\nThat works for us.", day(1))])
     assert analyze(t2, S, ME).salutation == {"word": "Hi", "name": "Scott"}
+
+
+def test_a_conversation_belongs_to_whoever_answers_the_customer():
+    from sales_pipeline.conversation import owner_is_me
+
+    fwd = M("inquiry@creative-biostructure.com", [ME, YANI], FORM, day(9, 18))
+    t = EmailThread("t", "Fwd: inquiry", [fwd])
+    assert owner_is_me(analyze(t, S, ME))                       # sent to you, nobody answered yet: yours
+    t.messages.append(M(YANI, ["rs@uni.example"], "Dear Robin, thank you for your inquiry.", day(10), cc=[ME]))
+    assert not owner_is_me(analyze(t, S, ME))                   # Yani answered: hers, left to her
+    t.messages.append(M(ME, ["rs@uni.example"], "Adding a note on pricing.", day(11), cc=[YANI]))
+    assert owner_is_me(analyze(t, S, ME))                       # you wrote to the customer too: yours again
+
+
+def test_a_customer_asking_us_for_a_price_is_an_inquiry_but_a_vendor_quote_is_not():
+    from sales_pipeline.models import Order
+    from sales_pipeline.tasks import classify
+
+    ask = EmailThread("t", "TEM negative-stain", [M(CUST, [ME], "Hi, could you quote negative-stain TEM for 6 "
+                                                  "samples?", day(1))])
+    c = analyze(ask, S, ME)
+    assert c.asked_for_quote and classify(ask, Order(is_sales_order=False), c, S) == "quote_request"
+    vendor = EmailThread("t", "Your quotation", [M("rep@vendor.example", [ME], "Please find attached the quotation "
+                                                   "you requested. Let me know if you have questions.", day(1))])
+    cv = analyze(vendor, S, ME)
+    assert not cv.asked_for_quote and classify(vendor, Order(is_sales_order=False), cv, S) == "other"

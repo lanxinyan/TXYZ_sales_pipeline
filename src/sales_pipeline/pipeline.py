@@ -199,7 +199,7 @@ class Pipeline:
 
         previous = self.store.get(thread.id)
         priority, reasons = prioritize(kind, order, issues, conv, s=self.s)
-        plan = build_plan(kind, order, conv, thread.subject, self.s, self._context(kind, order, thread),
+        plan = build_plan(kind, order, conv, thread.subject, self.s, self._context(kind, order, thread, conv),
                           previous.plan if previous else None)
         self.store.save(thread.id, subject=thread.subject, thread_url=thread.url,
                         message_count=len(thread.messages), status=status, order=order, issues=issues,
@@ -207,11 +207,18 @@ class Pipeline:
                         waiting_since=conv.last_inbound_at if conv.stage == "reply_needed" else None,
                         conv=conv, due_at=due_at, zoho_id=previous.zoho_id if previous else None)
 
-    def _context(self, kind: str, order: Order, thread: EmailThread | None):
+    def _context(self, kind: str, order: Order, thread: EmailThread | None, conv=None):
         from .conversation import invoice_status
         from .tasks import PlanContext
 
         ctx = PlanContext(templates=self.templates, tags=self.tags)
+        if kind == "quote_request":
+            if self.crm is not None and conv is not None and conv.customer_emails and not conv.replied_ever:
+                try:   # a colleague may already have created the inquiry in Zoho
+                    ctx.crm_record = self.crm.find(conv.customer_emails[0])
+                except Exception as e:
+                    log.warning("Zoho lookup failed: %s", e)
+            return ctx
         if kind != "order":
             return ctx
         threads = [thread] if thread is not None else []
@@ -295,7 +302,7 @@ class Pipeline:
             due = parse_date(rec.due_at)
             if due and due <= now and rec.order:
                 plan = build_plan(rec.kind, rec.order, rec.conv, rec.subject, self.s,
-                                  self._context(rec.kind, rec.order, None), rec.plan)
+                                  self._context(rec.kind, rec.order, None, rec.conv), rec.plan)
                 self.store.update(rec.thread_id, status="ready", plan=plan)
                 moved += 1
         return {"due now": moved} if moved else {}

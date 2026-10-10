@@ -43,6 +43,11 @@ DECLINE = re.compile(
     r"(?:over|beyond|exceeds?) (?:our|the) budget|no budget|not (?:be )?(?:moving|going) forward|"
     r"won'?t be (?:moving|proceeding)|not (?:to )?proceed|cancel(?:led)? (?:the|this|our)|put (?:it|this|the project) on hold|"
     r"不需要|不做了|不买|太贵|找别家", re.I)
+QUOTE_ASK = re.compile(   # a customer asking us for a price (not a vendor sending us one)
+    r"\b(?:could|can|would|will) you (?:please )?(?:quote|provide (?:me |us )?(?:with )?(?:a )?quot|"
+    r"send (?:me |us )?(?:a )?quot|give (?:me |us )?(?:a )?(?:quote|price))|\bplease (?:send (?:a |us a |me a )?)?quote\b|"
+    r"\b(?:request(?:ing)?|need|like|want) (?:a |an )?(?:formal )?quot(?:e|ation)|\bhow much\b|"
+    r"\b(?:what is|what's|send|share|provide) (?:the |your )?pric(?:e|es|ing)\b|报价|询价", re.I)
 ORDER_INTENT = re.compile(
     r"\bPO\b|purchase order|place (?:an|the|our) order|(?:would like|like|ready|happy) to proceed|"
     r"go ahead|please (?:start|begin)|issue (?:a|the) PO|下单", re.I)
@@ -269,6 +274,8 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset()) -> C
         if inbound:
             if event["kind"] == "customer":
                 event["who"] = inbound.get("name") or inbound["email"]
+                if QUOTE_ASK.search(text):
+                    conv.asked_for_quote = True
             email = inbound["email"]
             customers[email] = inbound.get("name") or customers.get(email)
             conv.customer_name = conv.customer_name or inbound.get("name")
@@ -328,9 +335,14 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset()) -> C
 
 
 def owner_is_me(conv: Conversation) -> bool:
-    """Follow-ups are yours when you have written to this customer, or the
-    inquiry was sent/forwarded to you directly (not just copied)."""
-    return conv.i_participated or conv.last_inbound_to_me
+    """Whoever answers the customer owns the conversation. It is yours when you have
+    written to this customer, or nobody has answered yet and it was sent/forwarded to
+    you directly (not just copied). Once a colleague is answering, it is theirs."""
+    if conv.i_participated:
+        return True
+    if conv.replied_ever:
+        return False
+    return conv.last_inbound_to_me
 
 
 def colleague_activity_since(conv_now: Conversation, since_iso: str | None, me: str) -> list[dict]:

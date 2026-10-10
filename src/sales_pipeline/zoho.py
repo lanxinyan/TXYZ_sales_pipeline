@@ -83,8 +83,12 @@ class ZohoCRM:
         rows = self._request("GET", f"{module}/{record_id}").get("data", [])
         return rows[0] if rows else {}
 
-    def find_by_email(self, module: str, email: str) -> list[dict]:
-        return self.search(module, f"(Email:equals:{self._esc(email)})")
+    def find_by_email(self, module: str, email: str, fields: list[str] | None = None) -> list[dict]:
+        parts = [f"({f}:equals:{self._esc(email)})" for f in (fields or ["Email"])]
+        return self.search(module, parts[0] if len(parts) == 1 else "(" + "or".join(parts) + ")")
+
+    def module_fields(self, module: str) -> list[dict]:
+        return self._request("GET", "settings/fields", params={"module": module}).get("fields", [])
 
     # ---------- tags, notes, modules (v8: /{module}/{id}/actions/add_tags etc.) ----------
 

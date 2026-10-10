@@ -126,17 +126,25 @@ def main(argv: list[str] | None = None) -> None:
         return
 
     if a.cmd == "zoho-setup":
-        from .crm import STAGES, load_tag_map, suggest_tag_map
+        from .crm import STAGES, CustomerCRM, load_tag_map, suggest_tag_map
 
         z = _zoho(s)
+        crm = CustomerCRM(z, s)
         modules = z.list_modules()
+        chosen = crm.modules()
+        print("Your Zoho modules (name shown in Zoho -> internal API name):")
         for m in modules:
-            label = f"{m.get('plural_label', '')} {m.get('singular_label', '')}"
-            if any(w in label.lower() for w in ("inquir", "询价")):
-                print(f"Inquiry module: {m['api_name']} ({m.get('plural_label')}). "
-                      f"Set ZOHO_CUSTOMER_MODULES={m['api_name']},Contacts if it is not first already.")
+            if not m.get("api_supported", True):
+                continue
+            mark = f"   <- customers, searched #{chosen.index(m['api_name']) + 1}" if m["api_name"] in chosen else ""
+            print(f"  {str(m.get('plural_label') or m.get('module_name') or ''):28} {m['api_name']}{mark}")
+        how = "from ZOHO_CUSTOMER_MODULES" if s.zoho_customer_modules else "found automatically"
+        print(f"\nCustomers are looked up in: {', '.join(chosen)} ({how}); new inquiries go into {chosen[0]}.")
+        for module in chosen:
+            print(f"  {module}: email field(s) {', '.join(crm.email_fields(module))}")
+        print("To change it, set ZOHO_CUSTOMER_MODULES in .env (comma-separated API names).\n")
         names: list[str] = []
-        for module in dict.fromkeys([*s.zoho_customer_modules, "Deals"]):
+        for module in chosen:
             try:
                 tags = [t["name"] for t in z.list_tags(module)]
             except Exception as e:

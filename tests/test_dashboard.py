@@ -55,3 +55,44 @@ def test_plan_keeps_user_edits_for_the_same_message(settings):
     plan[2]["enabled"] = False
     again = build_plan("order", o, None, "Order_X1", settings, ctx, plan)
     assert again[3]["draft"]["body"] == "custom text" and again[2]["enabled"] is False
+
+
+def test_the_page_answers_while_a_slow_scan_runs(settings):
+    import threading
+    import time
+
+    store = Store(settings.db_path)
+    _, _, pipe = seed(settings, store)
+    gate = threading.Event()
+
+    def slow_scanner(lock=None):
+        with lock:              # e.g. a slow Gmail call for one thread
+            gate.wait(5)
+        return {}
+
+    app = App(settings, store, pipe, scanner=slow_scanner)
+    t = threading.Thread(target=app.scan)
+    t.start()
+    time.sleep(0.05)
+    started = time.time()
+    code, j = app.handle("GET", "/api/tasks?view=todo", {})
+    assert code == 200 and j["scanning"] and time.time() - started < 1
+    assert app.scan() == {"already scanning": 1}
+    gate.set()
+    t.join()
+    assert app.handle("GET", "/api/tasks", {})[1]["scanning"] is False
+
+
+def test_connecting_zoho_saves_values_into_env(tmp_path, monkeypatch):
+    import os
+
+    from sales_pipeline.cli import _set_env
+
+    monkeypatch.setattr(os, "environ", dict(os.environ))     # keep the test process clean
+
+    env = tmp_path / ".env"
+    env.write_text("ZOHO_CLIENT_ID=\nSENDER_NAME=Tony\n", encoding="utf-8")
+    _set_env("ZOHO_CLIENT_ID", "1000.ABC", str(env))
+    _set_env("ZOHO_REFRESH_TOKEN", "1000.r3fr35h", str(env))
+    assert env.read_text(encoding="utf-8") == ("ZOHO_CLIENT_ID=1000.ABC\nSENDER_NAME=Tony\n"
+                                               "ZOHO_REFRESH_TOKEN=1000.r3fr35h\n")

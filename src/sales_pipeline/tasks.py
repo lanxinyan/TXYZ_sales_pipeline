@@ -284,7 +284,9 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                 id=f"followup_{n}", gated=True, enabled=True, crm_log=True, followup=n,
                 title=f"Follow-up {n} of {n_total} ({STAGE_LABEL.get(n, 'firmer')})",
                 detail=f"No answer since {last_by} email of {short(out.get('date'))}. "
-                       "Your previous email is quoted underneath.",
+                       + (f"Skipped ahead to follow-up {n} because of the time that has passed. "
+                          if n > max(conv.touches, 1) else "")
+                       + "Your previous email is quoted underneath.",
                 draft=_draft(variants[0], vals, out.get("to") or [email], out.get("cc", []),
                              _re(out.get("subject") or subject), in_reply_to=out.get("rfc_id", ""),
                              quote=_quote(out), variants=variants)))

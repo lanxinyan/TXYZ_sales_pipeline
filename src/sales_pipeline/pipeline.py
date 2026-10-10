@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+from contextlib import nullcontext
 from datetime import datetime, timezone
 
 from .config import Settings
@@ -268,27 +269,33 @@ class Pipeline:
 
     # ---------- keeping the list current ----------
 
-    def scan(self, query: str | None = None, limit: int = 50, rescan: bool = False) -> dict[str, int]:
+    def scan(self, query: str | None = None, limit: int = 50, rescan: bool = False, lock=None) -> dict[str, int]:
+        """Re-read new/changed threads. `lock` (the dashboard's) is held one thread at a
+        time, so your clicks are never kept waiting for the whole scan."""
+        lock = lock or nullcontext()
         counts: dict[str, int] = {}
         queries = [query] if query else [self.s.gmail_query, self.s.followup_query]
         seen: list[str] = []
         for q in queries:
-            for tid in self.gmail.search(q, limit):
-                if tid not in seen:
-                    seen.append(tid)
+            with lock:
+                found = self.gmail.search(q, limit)
+            seen += [tid for tid in found if tid not in seen]
         for tid in seen:
-            existing = self.store.get(tid)
-            if existing and (existing.status in ("pushed", "awaiting_send") or
-                             (existing.kind == "order" and existing.status == "done")):
-                continue   # handled orders stay handled; conversations reopen when the customer writes
-            thread = self.gmail.get_thread(tid, attachments=False)
-            # Only re-read a thread when new replies arrived (or when asked to).
-            if existing and not rescan and existing.message_count == len(thread.messages):
-                continue
-            status = self.process_thread(thread)
+            with lock:
+                existing = self.store.get(tid)
+                if existing and (existing.status in ("pushed", "awaiting_send") or
+                                 (existing.kind == "order" and existing.status == "done")):
+                    continue   # handled orders stay handled; conversations reopen when the customer writes
+                thread = self.gmail.get_thread(tid, attachments=False)
+                # Only re-read a thread when new replies arrived (or when asked to).
+                if existing and not rescan and existing.message_count == len(thread.messages):
+                    continue
+                status = self.process_thread(thread)
             log.info("%s  %-12s %s", tid, status, thread.subject)
             counts[status] = counts.get(status, 0) + 1
-        counts.update({k: counts.get(k, 0) + v for k, v in self.promote_due().items()})
+        with lock:
+            due = self.promote_due()
+        counts.update({k: counts.get(k, 0) + v for k, v in due.items()})
         return counts
 
     def promote_due(self) -> dict[str, int]:

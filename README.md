@@ -58,30 +58,67 @@ previous email quoted underneath and the same colleagues copied. Follow-ups that
 - **Orders.** A Sales Order is created with Account / Contact / Products and the quote PDF attached. The
   customer is tagged 已下单, and follow-ups on their quote thread stop.
 
-## Setup (one time)
+## Getting started
 
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e '.[dev]'
-cp .env.example .env        # then fill it in
-```
+Everything runs on your own computer. You need about 20 minutes once; after that it's one double-click a day.
+The files to double-click are in the `launchers` folder (Windows `.bat`, Mac `.command`).
 
-1. **Gmail**: In Google Cloud Console, enable the Gmail API and create an *OAuth client ID → Desktop app*.
-   Save it as `credentials.json`, run `sales-pipeline gmail-auth`, and sign in. The access covers reading,
-   labels and drafts. Mail is sent only when you approve it in the dashboard.
-2. **Zoho CRM**: At <https://api-console.zoho.com>, create a *Self Client* and generate a code with scope
-   `ZohoCRM.modules.ALL,ZohoCRM.settings.READ`. Put the client id and secret in `.env`, run
-   `sales-pipeline zoho-auth <code>`, and paste the printed `ZOHO_REFRESH_TOKEN` into `.env`.
-   If your account isn't on the US data center, change `ZOHO_ACCOUNTS_URL` / `ZOHO_API_DOMAIN`.
-3. **Your modules and tags**: `sales-pipeline zoho-setup` lists every Zoho module (the name you see next to its
-   internal name), the one that holds your inquiries, and the tags already in use (see *Where customers live in
-   Zoho* below). It shows which tag it will use for each stage (已下单 = ordered, 不买了 = not buying, 跟进中,
-   已报价, 询价 … if they exist). `sales-pipeline zoho-setup --write` saves the map to `zoho_tags.json`;
-   edit that file to change it. Until then only 已下单 and 不买了 are used, and no new tags are invented.
-4. **You**: `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template) and
-   `EMAIL_SIGNATURE` in `.env` go into every email.
-5. **Claude** (optional): `ANTHROPIC_API_KEY` lets Claude read order emails and their PDF quotes/POs.
-   Without it (`USE_LLM=false`), order forms are read by the built-in parser, and follow-ups work the same.
+**1. Install Python and the app (once)**
+1. Install **Python 3.10 or newer** from <https://www.python.org/downloads/>. On Windows, tick
+   **"Add python.exe to PATH"** in the installer.
+2. Get this project: on GitHub, green **Code** button → **Download ZIP**, then unzip it somewhere permanent
+   (e.g. Documents/SalesDesk).
+3. Double-click **`1 Setup`** (`Windows - 1 Setup.bat` or `Mac - 1 Setup.command`). It installs everything
+   into the folder and ends with a checklist of what's still to do.
+   - Windows may say "Windows protected your PC": click *More info* → *Run anyway*.
+   - Mac may say it can't verify the developer: Control-click the file → *Open* → *Open*.
+
+**2. Look around with made-up data (optional)**: double-click **`2 Try demo`**. Your browser opens Sales Desk
+with fictional customers; nothing touches Gmail or Zoho. Close the black window to stop.
+
+**3. Connect Gmail (once, ~10 minutes)**, signed in to Google as xinyan.zhang@creative-biostructure.com:
+1. Open <https://console.cloud.google.com>, pick **New project** in the project menu at the top, and name it
+   *Sales Desk*.
+2. Search for **Gmail API** in the top search bar, then click **Enable**.
+3. Search for **OAuth consent screen** (also called *Google Auth Platform*). Give the app the name *Sales Desk*,
+   enter your email, and choose **Internal** as the audience (only your company). Then **Create**.
+   If *Internal* isn't offered, choose *External* and add your own address under *Test users*.
+4. Go to **Clients** (or *Credentials → Create credentials → OAuth client ID*). Choose application type
+   **Desktop app**, click **Create**, then **Download JSON**.
+5. Rename the downloaded file to **`credentials.json`** and put it in the Sales Desk folder, next to `README.md`.
+
+The first time you start Sales Desk (step 5), your browser asks you to sign in to Google and allow access.
+If your company's Google admin blocks this, ask them to allow internal apps to use the Gmail API.
+
+**4. Connect Zoho CRM (once, ~5 minutes)**
+1. Open <https://api-console.zoho.com>, signed in with your Zoho CRM account. Choose **Add Client** →
+   **Self Client** → **Create**.
+2. Double-click **`3 Connect Zoho`**. Paste the **Client ID** and **Client Secret** it asks for; they're on
+   the Self Client's *Client Secret* tab.
+3. On the Self Client's **Generate Code** tab, fill in the scope `ZohoCRM.modules.ALL,ZohoCRM.settings.READ`,
+   a duration of 10 minutes and a description of *Sales Desk*. Click **Create**, copy the code, and paste it into
+   the window. Codes expire, so do this within the 10 minutes.
+4. It saves everything to `.env`, then lists your Zoho modules and tags (see *Where customers live in Zoho*).
+   Check that it picked the module holding your inquiries.
+
+Your account is on Zoho's US data center (crm.zoho.com), which is what Sales Desk uses by default.
+
+**5. Start it (every day)**: double-click **`Start Sales Desk`**. Your browser opens at
+<http://127.0.0.1:8765>. Keep the black window open while you work; closing it stops Sales Desk. It reads
+Gmail when it starts and every 15 minutes after that. Anything missing? Run `sales-pipeline check`, or just
+re-run `1 Setup`, which ends with the same checklist.
+
+**The first run**
+- The first scan reads 60 days of sent mail and 30 days of inquiries and orders. It can take a minute or two,
+  and items appear as they're found.
+- Expect a backlog. Quotes that went quiet come up with the follow-up that fits the time that has passed (up to
+  the final one), not a gentle "did you receive it?" weeks later. Work through them, snooze them, or mark them
+  不买了. To start smaller, set `FOLLOWUP_QUERY=in:sent newer_than:14d` in `.env`.
+- Only replies you send from now on are recorded in Zoho; past ones aren't back-filled.
+
+**Optional settings** (`.env`): `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template),
+`EMAIL_SIGNATURE`. Add `ANTHROPIC_API_KEY` to let Claude read order emails and their PDF quotes/POs. Without
+it, order forms are read by the built-in parser, and follow-ups work the same.
 
 ## Where customers live in Zoho
 
@@ -110,10 +147,7 @@ To override the choice, set `ZOHO_CUSTOMER_MODULES` in `.env` (comma-separated A
 
 ## Daily use: the dashboard
 
-```bash
-sales-pipeline ui --demo     # try it first with made-up data (nothing leaves your computer)
-sales-pipeline ui            # live: http://127.0.0.1:8765, re-reads Gmail every 15 minutes
-```
+Start it with **`Start Sales Desk`** (or `sales-pipeline ui`; `sales-pipeline ui --demo` for made-up data).
 
 - **To decide**: what needs you today, sorted by priority. Each item shows the conversation (customer /
   you / colleague / accounting / CRM), what colleagues already did, and the plan.
@@ -189,6 +223,7 @@ To fill custom fields, extend `sales_order_payload()` in `src/sales_pipeline/pip
 | `store.py` | local SQLite: items, activity log, ignored domains, what's been logged |
 | `web.py`, `ui.html` | the dashboard (standard-library web server) |
 | `demo.py` | made-up inbox + in-memory Gmail/Zoho for `ui --demo` |
-| `cli.py` | `sales-pipeline` command |
+| `cli.py` | `sales-pipeline` command (`check`, `ui`, `zoho-auth`, `zoho-setup`, ...) |
+| `launchers/` | double-click setup / demo / connect-Zoho / start files for Windows and Mac |
 
 Run tests with `pytest`.

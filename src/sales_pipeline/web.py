@@ -10,6 +10,7 @@ import json
 import logging
 import threading
 import time
+import webbrowser
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -53,21 +54,36 @@ class App:
         self.s, self.store, self.pipeline, self.demo = settings, store, pipeline, demo
         self.exec = Executor(settings, store, gmail=pipeline.gmail, zoho=pipeline.zoho, pipeline=pipeline)
         self.scanner = scanner
-        self.lock = threading.RLock()
+        self.lock = threading.RLock()            # one Gmail/Zoho action at a time
+        self._scan_guard = threading.Lock()      # one scan at a time
+        self.scanning = False
         self.last_scan: str | None = None
 
     def counts(self) -> dict:
         return {v: len(self.store.list(st)) for v, st in VIEWS.items()}
 
     def scan(self) -> dict:
-        with self.lock:
-            result = self.scanner() if self.scanner else self.pipeline.promote_due()
+        if not self._scan_guard.acquire(blocking=False):
+            return {"already scanning": 1}
+        self.scanning = True
+        try:
+            if self.scanner:
+                result = self.scanner(lock=self.lock)
+            else:
+                with self.lock:
+                    result = self.pipeline.promote_due()
             self.last_scan = datetime.now(timezone.utc).isoformat(timespec="seconds")
             return result
+        finally:
+            self.scanning = False
+            self._scan_guard.release()
 
     def _list(self, view: str) -> list[dict]:
-        if view in ("todo", "upcoming"):
-            self.pipeline.promote_due()
+        if view in ("todo", "upcoming") and self.lock.acquire(blocking=False):
+            try:   # move follow-ups whose day has come into To decide (skipped while busy)
+                self.pipeline.promote_due()
+            finally:
+                self.lock.release()
         recs = self.store.list(VIEWS.get(view, VIEWS["todo"]))
         if view == "upcoming":
             recs.sort(key=lambda r: r.due_at or "")
@@ -75,22 +91,23 @@ class App:
 
     def info(self) -> dict:
         return {"demo": self.demo, "zoho": self.pipeline.zoho is not None, "gmail": self.pipeline.gmail is not None,
-                "tags": self.pipeline.tags, "last_scan": self.last_scan, "me": self.s.user_email,
-                "followup_days": self.s.followup_days}
+                "tags": self.pipeline.tags, "last_scan": self.last_scan, "scanning": self.scanning,
+                "me": self.s.user_email, "followup_days": self.s.followup_days}
 
     def handle(self, method: str, path: str, body: dict) -> tuple[int, dict]:
         parts = [p for p in path.split("?")[0].split("/") if p][1:]  # drop "api"
         query = dict(q.split("=", 1) for q in path.split("?", 1)[1].split("&") if "=" in q) if "?" in path else {}
+        # Reading never waits for a scan; actions take turns with it, one thread at a time.
+        if method == "GET" and parts == ["tasks"]:
+            return 200, {"tasks": self._list(query.get("view", "todo")), "counts": self.counts(), **self.info()}
+        if method == "GET" and parts == ["activity"]:
+            return 200, {"activity": self.store.activity(limit=200), "counts": self.counts(), **self.info()}
+        if method == "POST" and parts == ["scan"]:
+            if not self.scanner:
+                return 400, {"error": "Gmail is not connected" if not self.demo else
+                             "The demo has no Gmail to scan"}
+            return 200, {"result": self.scan(), "counts": self.counts()}
         with self.lock:
-            if method == "GET" and parts == ["tasks"]:
-                return 200, {"tasks": self._list(query.get("view", "todo")), "counts": self.counts(), **self.info()}
-            if method == "GET" and parts == ["activity"]:
-                return 200, {"activity": self.store.activity(limit=200), "counts": self.counts(), **self.info()}
-            if method == "POST" and parts == ["scan"]:
-                if not self.scanner:
-                    return 400, {"error": "Gmail is not connected" if not self.demo else
-                                 "The demo has no Gmail to scan"}
-                return 200, {"result": self.scan(), "counts": self.counts()}
             if len(parts) == 3 and parts[0] == "tasks" and method == "POST":
                 tid, action = parts[1], parts[2]
                 ex = self.exec
@@ -165,18 +182,24 @@ def make_handler(app: App):
     return Handler
 
 
-def serve(app: App, port: int = 8765, scan_every_min: int = 0) -> None:
+def serve(app: App, port: int = 8765, scan_every_min: int = 0, open_browser: bool = True) -> None:
     srv = ThreadingHTTPServer(("127.0.0.1", port), make_handler(app))
-    if scan_every_min and app.scanner:
-        def loop():
+    url = f"http://127.0.0.1:{port}"
+    if app.scanner:
+        def loop():   # first scan right away, then every few minutes while the page is open
             while True:
                 try:
                     app.scan()
                 except Exception:
                     log.exception("background scan failed")
+                if not scan_every_min:
+                    return
                 time.sleep(scan_every_min * 60)
         threading.Thread(target=loop, daemon=True).start()
-    print(f"Dashboard: http://127.0.0.1:{port}  ({'DEMO data' if app.demo else 'live'}; Ctrl+C to stop)")
+    if open_browser:
+        threading.Timer(1.0, webbrowser.open, args=[url]).start()
+    print(f"Sales Desk is running at {url}  ({'DEMO data' if app.demo else 'live'})")
+    print("Keep this window open while you use it; close it (or press Ctrl+C) to stop.")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

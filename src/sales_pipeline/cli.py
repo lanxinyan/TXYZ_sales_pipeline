@@ -1,5 +1,6 @@
 """Command line:  sales-pipeline <command>
 
+  check                what is set up and what to do next (start here)
   scan                 read new order emails from Gmail and extract them
   list [--status S]    show what has been found
   show ID              full extracted order + issues for one thread
@@ -18,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import logging
 import sys
 
@@ -44,11 +46,72 @@ def _zoho(s: Settings):
 
 
 def _llm(s: Settings):
-    if not s.use_llm:
+    # Claude is optional: without a key, order emails are read by the built-in parser.
+    if not s.use_llm or not (s.anthropic_api_key or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
         return None
     from .extract_llm import ClaudeExtractor
 
     return ClaudeExtractor(s.claude_model, s.internal_domains, s.anthropic_api_key)
+
+
+def _set_env(key: str, value: str, path: str = ".env") -> None:
+    """Write KEY=value into .env (replacing an existing line)."""
+    lines = open(path, encoding="utf-8").read().splitlines() if os.path.exists(path) else []
+    for i, ln in enumerate(lines):
+        if ln.split("=", 1)[0].strip() == key:
+            lines[i] = f"{key}={value}"
+            break
+    else:
+        lines.append(f"{key}={value}")
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    os.environ[key] = value
+
+
+def _check(s: Settings) -> None:
+    """Walk through the setup and say what is missing, in order."""
+    import sys as _sys
+
+    def line(ok, what, fix=""):
+        print(f"  [{'x' if ok else ' '}] {what}" + ("" if ok or not fix else f"\n        -> {fix}"))
+        return ok
+
+    print("Sales Desk setup:")
+    line(_sys.version_info >= (3, 10), f"Python {_sys.version.split()[0]}", "install Python 3.10 or newer")
+    line(os.path.exists(".env"), "settings file .env", "copy .env.example to .env (setup does this for you)")
+    has_creds = os.path.exists(s.gmail_credentials_file)
+    has_token = os.path.exists(s.gmail_token_file)
+    line(has_creds or has_token, f"Google sign-in file {s.gmail_credentials_file}",
+         "download it from Google Cloud Console (README, step 3) and put it in this folder")
+    gmail_ok = False
+    if has_token:
+        try:
+            _gmail(s)
+            gmail_ok = line(True, f"Gmail connected as {s.user_email}")
+        except Exception as e:
+            line(False, "Gmail sign-in", f"run `sales-pipeline gmail-auth` again ({e})")
+    else:
+        line(False, "Gmail signed in", "run `sales-pipeline gmail-auth` (opens a browser to sign in)")
+    zoho_ok = False
+    if s.zoho_refresh_token:
+        try:
+            from .crm import CustomerCRM
+
+            crm = CustomerCRM(_zoho(s), s)
+            zoho_ok = line(True, f"Zoho connected; customers are looked up in {', '.join(crm.modules())}")
+        except Exception as e:
+            line(False, "Zoho connection", f"check ZOHO_CLIENT_ID/SECRET/REFRESH_TOKEN in .env ({e})")
+    else:
+        line(False, "Zoho connected", "README, step 4: create a Self Client, then `sales-pipeline zoho-auth <code>`")
+    if zoho_ok:
+        line(os.path.exists(s.zoho_tag_file), f"tag map {s.zoho_tag_file}",
+             "run `sales-pipeline zoho-setup --write` (until then only 已下单 and 不买了 are used)")
+    line(True, "Claude: " + ("on" if _llm(s) else "off (optional; order emails are read by the built-in parser)"))
+    print()
+    if gmail_ok:
+        print("Ready: start it with  sales-pipeline ui" + ("" if zoho_ok else "   (CRM steps wait until Zoho is connected)"))
+    else:
+        print("Next: connect Gmail. Meanwhile try it with made-up data:  sales-pipeline ui --demo")
 
 
 def _pipeline(s: Settings, store: Store) -> Pipeline:
@@ -101,9 +164,11 @@ def main(argv: list[str] | None = None) -> None:
     ui = sub.add_parser("ui")
     ui.add_argument("--demo", action="store_true", help="fictional data, nothing leaves your computer")
     ui.add_argument("--port", type=int, default=8765)
+    ui.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
+    sub.add_parser("check")
     sub.add_parser("gmail-auth")
     za = sub.add_parser("zoho-auth")
-    za.add_argument("code", help="grant code from https://api-console.zoho.com (Self Client)")
+    za.add_argument("code", nargs="?", help="grant code from https://api-console.zoho.com (asked for when left out)")
 
     a = p.parse_args(argv)
     logging.basicConfig(level=logging.INFO if a.verbose else logging.WARNING,
@@ -111,18 +176,31 @@ def main(argv: list[str] | None = None) -> None:
     s = Settings.from_env()
 
     if a.cmd == "gmail-auth":
+        if not os.path.exists(s.gmail_credentials_file):
+            sys.exit(f"First put the Google sign-in file in this folder as {s.gmail_credentials_file} "
+                     "(README, step 3).")
         _gmail(s)
-        print(f"Gmail authorized; token saved to {s.gmail_token_file}")
+        print(f"Gmail connected as {s.user_email}; sign-in saved to {s.gmail_token_file}")
         return
     if a.cmd == "zoho-auth":
         import requests
 
+        print("Connect Zoho CRM (README, step 4). Values are saved to .env.")
+        if not s.zoho_client_id:
+            s.zoho_client_id = input("Client ID (from api-console.zoho.com, Self Client): ").strip()
+            _set_env("ZOHO_CLIENT_ID", s.zoho_client_id)
+        if not s.zoho_client_secret:
+            s.zoho_client_secret = input("Client Secret: ").strip()
+            _set_env("ZOHO_CLIENT_SECRET", s.zoho_client_secret)
+        code = a.code or input("Code from 'Generate Code' (scope ZohoCRM.modules.ALL,ZohoCRM.settings.READ): ").strip()
         r = requests.post(f"{s.zoho_accounts_url}/oauth/v2/token", params={
-            "grant_type": "authorization_code", "code": a.code,
+            "grant_type": "authorization_code", "code": code,
             "client_id": s.zoho_client_id, "client_secret": s.zoho_client_secret}, timeout=30).json()
         if "refresh_token" not in r:
-            sys.exit(f"Zoho did not return a refresh token: {r}")
-        print(f"Add this to .env:\nZOHO_REFRESH_TOKEN={r['refresh_token']}")
+            sys.exit(f"Zoho did not accept it: {r}\nA code is only valid for a few minutes; generate a new "
+                     "one and run this again. If the Client ID/Secret were wrong, fix them in .env.")
+        _set_env("ZOHO_REFRESH_TOKEN", r["refresh_token"])
+        print("Zoho connected; saved to .env.")
         return
 
     if a.cmd == "zoho-setup":
@@ -173,11 +251,29 @@ def main(argv: list[str] | None = None) -> None:
             s.db_path = "demo.db"
             store = Store(s.db_path)
             _, _, pipe = seed(s, store)
-            serve(App(s, store, pipe, demo=True), a.port)
+            serve(App(s, store, pipe, demo=True), a.port, open_browser=not a.no_browser)
             return
+        if not (os.path.exists(s.gmail_token_file) or os.path.exists(s.gmail_credentials_file)):
+            sys.exit("Gmail isn't connected yet, so there is nothing to show.\n"
+                     f"  1. Put the Google sign-in file in this folder as {s.gmail_credentials_file} (README, step 3)\n"
+                     "  2. Run:  sales-pipeline gmail-auth\n"
+                     "Meanwhile you can try it with made-up data:  sales-pipeline ui --demo\n"
+                     "Run `sales-pipeline check` to see everything that is left to set up.")
         store = Store(s.db_path)
-        pipe = _pipeline(s, store)
-        serve(App(s, store, pipe, scanner=pipe.scan), a.port, s.scan_interval_min)
+        try:
+            pipe = _pipeline(s, store)
+        except Exception as e:
+            sys.exit(f"Couldn't connect to Gmail: {e}\n"
+                     "Run `sales-pipeline check` to see what is missing (README, step 3).")
+        if pipe.zoho is None:
+            print("Note: Zoho isn't connected yet; CRM steps will wait until it is (README, step 4).")
+        if pipe.llm is None:
+            print("Note: Claude is off (no ANTHROPIC_API_KEY); order emails are read by the built-in parser.")
+        serve(App(s, store, pipe, scanner=pipe.scan), a.port, s.scan_interval_min, open_browser=not a.no_browser)
+        return
+
+    if a.cmd == "check":
+        _check(s)
         return
 
     store = Store(s.db_path)

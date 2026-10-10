@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
@@ -66,21 +67,35 @@ class Record:
 
 
 class Store:
+    """One SQLite file. Safe to share between the dashboard's threads: every
+    statement runs under a lock and results are read out before it is released."""
+
     def __init__(self, path: str):
+        self._lock = threading.RLock()
         self.db = sqlite3.connect(path, check_same_thread=False)
         self.db.row_factory = sqlite3.Row
-        self.db.execute(SCHEMA)
-        have = {r["name"] for r in self.db.execute("PRAGMA table_info(orders)")}
-        for col, typ in EXTRA_COLUMNS.items():
-            if col not in have:
-                self.db.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
-        self.db.executescript(OTHER_TABLES)
-        self.db.execute("INSERT OR IGNORE INTO meta VALUES ('started_at', ?)", (_now(),))
-        self.db.commit()
+        with self._lock:
+            self.db.execute(SCHEMA)
+            have = {r["name"] for r in self.db.execute("PRAGMA table_info(orders)")}
+            for col, typ in EXTRA_COLUMNS.items():
+                if col not in have:
+                    self.db.execute(f"ALTER TABLE orders ADD COLUMN {col} {typ}")
+            self.db.executescript(OTHER_TABLES)
+            self.db.execute("INSERT OR IGNORE INTO meta VALUES ('started_at', ?)", (_now(),))
+            self.db.commit()
+
+    def _all(self, sql: str, args=()) -> list[sqlite3.Row]:
+        with self._lock:
+            return self.db.execute(sql, args).fetchall()
+
+    def _write(self, sql: str, args=()) -> None:
+        with self._lock:
+            self.db.execute(sql, args)
+            self.db.commit()
 
     def get(self, thread_id: str) -> Record | None:
-        row = self.db.execute("SELECT * FROM orders WHERE thread_id=?", (thread_id,)).fetchone()
-        return self._rec(row) if row else None
+        rows = self._all("SELECT * FROM orders WHERE thread_id=?", (thread_id,))
+        return self._rec(rows[0]) if rows else None
 
     def list(self, status: str | list[str] | None = None) -> list[Record]:
         q, args = "SELECT * FROM orders", []
@@ -88,7 +103,7 @@ class Store:
             statuses = [status] if isinstance(status, str) else list(status)
             q += f" WHERE status IN ({','.join('?' * len(statuses))})"
             args = statuses
-        return [self._rec(r) for r in self.db.execute(q + " ORDER BY priority DESC, updated_at DESC", args)]
+        return [self._rec(r) for r in self._all(q + " ORDER BY priority DESC, updated_at DESC", args)]
 
     def save(self, thread_id: str, *, subject: str = "", thread_url: str = "", message_count: int = 0,
              status: str, order: Order | None, issues: list[str], zoho_id: str | None = None,
@@ -105,20 +120,20 @@ class Store:
             kind=kind, priority=priority, reasons=json.dumps(reasons or [], ensure_ascii=False),
             plan_json=json.dumps(plan or [], ensure_ascii=False), waiting_since=waiting_since,
             conv_json=conv.model_dump_json() if conv else None, due_at=due_at)
-        self.db.execute(f"INSERT OR REPLACE INTO orders ({','.join(FIELDS)}) VALUES "
-                        f"({','.join('?' * len(FIELDS))})", [values[f] for f in FIELDS])
-        self.db.commit()
+        self._write(f"INSERT OR REPLACE INTO orders ({','.join(FIELDS)}) VALUES ({','.join('?' * len(FIELDS))})",
+                    [values[f] for f in FIELDS])
 
     def update(self, thread_id: str, **fields) -> None:
-        rec = self.get(thread_id)
-        if rec is None:
-            raise KeyError(thread_id)
-        merged = dict(subject=rec.subject, thread_url=rec.thread_url, message_count=rec.message_count,
-                      status=rec.status, order=rec.order, issues=rec.issues, zoho_id=rec.zoho_id,
-                      error=rec.error, kind=rec.kind, priority=rec.priority, reasons=rec.reasons,
-                      plan=rec.plan, waiting_since=rec.waiting_since, conv=rec.conv, due_at=rec.due_at)
-        merged.update(fields)
-        self.save(thread_id, **merged)
+        with self._lock:   # read-modify-write as one step
+            rec = self.get(thread_id)
+            if rec is None:
+                raise KeyError(thread_id)
+            merged = dict(subject=rec.subject, thread_url=rec.thread_url, message_count=rec.message_count,
+                          status=rec.status, order=rec.order, issues=rec.issues, zoho_id=rec.zoho_id,
+                          error=rec.error, kind=rec.kind, priority=rec.priority, reasons=rec.reasons,
+                          plan=rec.plan, waiting_since=rec.waiting_since, conv=rec.conv, due_at=rec.due_at)
+            merged.update(fields)
+            self.save(thread_id, **merged)
 
     @staticmethod
     def _rec(row: sqlite3.Row) -> Record:
@@ -136,33 +151,29 @@ class Store:
     # ---------- activity log, ignore list, CRM log, meta ----------
 
     def log(self, thread_id: str, text: str) -> None:
-        self.db.execute("INSERT INTO activity (ts, thread_id, text) VALUES (?,?,?)", (_now(), thread_id, text))
-        self.db.commit()
+        self._write("INSERT INTO activity (ts, thread_id, text) VALUES (?,?,?)", (_now(), thread_id, text))
 
     def activity(self, thread_id: str | None = None, limit: int = 100) -> list[dict]:
         q, args = "SELECT ts, thread_id, text FROM activity", []
         if thread_id:
             q, args = q + " WHERE thread_id=?", [thread_id]
-        rows = self.db.execute(q + " ORDER BY id DESC LIMIT ?", [*args, limit])
-        return [dict(r) for r in rows]
+        return [dict(r) for r in self._all(q + " ORDER BY id DESC LIMIT ?", [*args, limit])]
 
     def ignore_domain(self, domain: str) -> None:
-        self.db.execute("INSERT OR REPLACE INTO ignored VALUES (?,?)", (domain.lower(), _now()))
-        self.db.commit()
+        self._write("INSERT OR REPLACE INTO ignored VALUES (?,?)", (domain.lower(), _now()))
 
     def ignored_domains(self) -> set[str]:
-        return {r["domain"] for r in self.db.execute("SELECT domain FROM ignored")}
+        return {r["domain"] for r in self._all("SELECT domain FROM ignored")}
 
     def crm_logged(self, message_id: str) -> bool:
-        return bool(self.db.execute("SELECT 1 FROM crm_logged WHERE message_id=?", (message_id,)).fetchone())
+        return bool(self._all("SELECT 1 FROM crm_logged WHERE message_id=?", (message_id,)))
 
     def mark_crm_logged(self, message_id: str, thread_id: str, note_id: str) -> None:
-        self.db.execute("INSERT OR REPLACE INTO crm_logged VALUES (?,?,?,?)", (message_id, thread_id, note_id, _now()))
-        self.db.commit()
+        self._write("INSERT OR REPLACE INTO crm_logged VALUES (?,?,?,?)", (message_id, thread_id, note_id, _now()))
 
     def meta(self, key: str) -> str | None:
-        row = self.db.execute("SELECT value FROM meta WHERE key=?", (key,)).fetchone()
-        return row["value"] if row else None
+        rows = self._all("SELECT value FROM meta WHERE key=?", (key,))
+        return rows[0]["value"] if rows else None
 
 
 def _now() -> str:

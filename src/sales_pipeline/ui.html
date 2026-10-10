@@ -28,6 +28,7 @@ h1{font-size:16px;margin:0;font-weight:650;white-space:nowrap}
 .spacer{flex:1}
 .badge{font-size:11px;padding:2px 8px;border-radius:99px;font-weight:600;white-space:nowrap}
 .badge.demo{background:var(--med-bg);color:var(--med)} .badge.off{background:var(--bad-bg);color:var(--high)}
+.badge.busy{background:var(--sel);color:var(--accent)}
 button.btn{font:inherit;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:6px 12px;border-radius:7px;cursor:pointer;white-space:nowrap}
 button.btn:hover{background:var(--hover)}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
@@ -157,7 +158,8 @@ async function load(keep){
 function renderHeader(){
   $("#tabs").innerHTML=VIEWS.map(([k,l])=>`<button class="tab ${k===view?"on":""}" data-v="${k}">${l}${k in counts&&k!=="activity"?`<b>${counts[k]}</b>`:""}</button>`).join("");
   document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{view=b.dataset.v;load()});
-  $("#chips").innerHTML=(info.demo?`<span class="badge demo">DEMO DATA</span> `:"")+(!info.zoho?`<span class="badge off">Zoho not connected</span>`:"");
+  $("#chips").innerHTML=(info.scanning?`<span class="badge busy">Scanning Gmail…</span> `:"")+(info.demo?`<span class="badge demo">DEMO DATA</span> `:"")+(!info.zoho?`<span class="badge off">Zoho not connected</span>`:"");
+  clearTimeout(window._poll); if(info.scanning)window._poll=setTimeout(()=>{if(!busyEditing())load(true)},4000);
 }
 function rowWhy(t){
   if(view==="upcoming")return `${t.action||""} due ${when(t.due_at)}`+(t.reasons.length?" · "+t.reasons.join(" · "):"");
@@ -166,7 +168,7 @@ function rowWhy(t){
 function renderList(){
   if(view==="activity"){
     const a=window._activity; $("#list").innerHTML=a.length?a.map(x=>`<div class="act-row"><div class="when">${esc(new Date(x.ts).toLocaleString())}</div>${esc(x.text)}</div>`).join(""):`<div class="empty">Nothing yet. Everything Sales Desk does on its own is listed here.</div>`;return}
-  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${{todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",send:"No drafts waiting."}[view]||"Nothing here."}</div>`;return}
+  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${info.scanning&&view==="todo"?"Reading your Gmail… items appear here as they are found (the first scan can take a minute or two).":({todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",send:"No drafts waiting."}[view]||"Nothing here.")}</div>`;return}
   $("#list").innerHTML=tasks.map((t,i)=>{const o=t.order||{};
     return `<div class="row ${i===sel?"sel":""}" data-i="${i}"><span class="pill ${t.level}">${t.level}</span>
       <span class="t">${esc(t.title||t.subject)} ${t.action?`<span class="tag act">${esc(t.action)}</span>`:""}</span>
@@ -312,8 +314,9 @@ async function outcome(o,label){const t=tasks[sel];if(!t||!confirm(`Tag “${lab
   try{await api(`tasks/${t.id}/outcome`,{outcome:o});toast(`Tagged ${label}.`);await load()}catch(e){toast(e.message)}}
 async function ignore(){const t=tasks[sel];if(!t||!confirm("Never suggest follow-ups for this sender's domain?"))return;
   try{await api(`tasks/${t.id}/ignore`,{});toast("Ignored.");await load()}catch(e){toast(e.message)}}
-$("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="Scanning…";
-  try{const j=await api("scan",{});const r=j.result||{};toast("Scan: "+(Object.entries(r).map(([k,v])=>v+" "+k.replace("_"," ")).join(", ")||"nothing new"));await load(true)}
+function busyEditing(){return !!document.querySelector("textarea:focus,input:focus")||$("#conflict").open}
+$("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="Scanning…";setTimeout(()=>load(true),800);
+  try{const j=await api("scan",{});const r=j.result||{};toast(r["already scanning"]?"Already scanning; the list updates as it goes.":"Scan: "+(Object.entries(r).map(([k,v])=>v+" "+k.replace("_"," ")).join(", ")||"nothing new"));await load(true)}
   catch(e){toast(e.message)} b.disabled=false;b.textContent="Scan Gmail"};
 document.addEventListener("keydown",e=>{
   if(e.target.closest("input,textarea,select,dialog")||e.metaKey||e.ctrlKey||e.altKey)return;
@@ -322,7 +325,7 @@ document.addEventListener("keydown",e=>{
   else if(view==="todo"&&e.key==="s")skip();
 });
 load();
-setInterval(()=>{if(!document.querySelector("textarea:focus,input:focus")&&!$("#conflict").open)load(true)},120000);
+setInterval(()=>{if(!busyEditing())load(true)},120000);
 </script>
 </body>
 </html>

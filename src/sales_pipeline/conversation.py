@@ -191,7 +191,8 @@ def _sorted(messages: list[EmailMessage]) -> list[EmailMessage]:
     return sorted(messages, key=lambda m: parse_date(m.date) or epoch)
 
 
-def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset()) -> Conversation:
+def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
+            now: datetime | None = None) -> Conversation:
     who = Who(s, me, ignored)
     me = who.me
     conv = Conversation(topic=clean_topic(thread.subject) or None)
@@ -326,12 +327,25 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset()) -> C
         if "declined" in kinds:
             conv.stage, conv.due_at = "declined", iso(last_out)
         elif n <= len(s.followup_days):
-            conv.stage, conv.followup_no = "awaiting_customer", n
+            conv.stage = "awaiting_customer"
             conv.due_at = iso(last_out + timedelta(days=s.followup_days[n - 1]))
+            conv.followup_no = catch_up(n, last_out, s.followup_days, now or datetime.now(timezone.utc))
         else:
             conv.stage = "exhausted"
             conv.due_at = iso(last_out + timedelta(days=s.close_after_days))
     return conv
+
+
+def catch_up(n: int, last_out: datetime, days: list[int], now: datetime) -> int:
+    """Follow-up n is due days[n-1] after our last email. If even the next one's
+    time has passed (e.g. a quote that went quiet weeks ago), skip ahead to the
+    follow-up that fits the time elapsed rather than a gentle "did you receive it?"."""
+    elapsed = (now - last_out).total_seconds() / 86400
+    k, waited = n, days[n - 1]
+    while k < len(days) and elapsed >= waited + days[k]:
+        waited += days[k]
+        k += 1
+    return k
 
 
 def owner_is_me(conv: Conversation) -> bool:

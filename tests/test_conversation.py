@@ -59,7 +59,7 @@ def test_followups_count_colleagues_and_follow_the_1_2_7_30_cadence():
     expected = [(1, 1), (2, 2), (3, 7), (4, 30)]
     senders = [ME, YANI, ME, YANI]
     for i, (n, gap) in enumerate(expected):
-        c = analyze(EmailThread("t", "Re: Quote", list(msgs)), S, ME)
+        c = analyze(EmailThread("t", "Re: Quote", list(msgs)), S, ME, now=parse_date(msgs[-1].date))
         assert (c.stage, c.followup_no, c.touches) == ("awaiting_customer", n, n)
         assert parse_date(c.due_at) - parse_date(msgs[-1].date) == timedelta(days=gap)
         msgs.append(M(senders[i], [CUST], f"follow-up {n}", day(3 + i), cc=[ME]))
@@ -76,7 +76,7 @@ def test_customer_reply_resets_the_follow_up_count():
         M(ME, [CUST], "Just checking in.", day(2)),
         M(CUST, [ME], "Can you do it in 4 weeks instead of 6?", day(3)),
         M(ME, [CUST], "Yes, 4 weeks works.", day(4))])
-    c = analyze(t, S, ME)
+    c = analyze(t, S, ME, now=parse_date(day(4, 13)))
     assert (c.stage, c.followup_no) == ("awaiting_customer", 1)
 
 
@@ -180,3 +180,18 @@ def test_a_customer_asking_us_for_a_price_is_an_inquiry_but_a_vendor_quote_is_no
                                                    "you requested. Let me know if you have questions.", day(1))])
     cv = analyze(vendor, S, ME)
     assert not cv.asked_for_quote and classify(vendor, Order(is_sales_order=False), cv, S) == "other"
+
+
+def test_a_quote_that_went_quiet_long_ago_skips_ahead_to_a_firmer_follow_up():
+    from datetime import datetime, timezone
+
+    from sales_pipeline.conversation import catch_up
+
+    sent = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    days = [1, 2, 7, 30]
+    at = lambda d: sent + timedelta(days=d)          # noqa: E731
+    assert [catch_up(1, sent, days, at(d)) for d in (1, 2.9, 3, 9, 10, 39, 40, 400)] == [1, 1, 2, 2, 3, 3, 4, 4]
+    assert catch_up(3, sent, days, at(10)) == 3      # after FU2: FU3 is due at +7, FU4 not before +37
+    t = EmailThread("t", "Re: Quote", [M(ME, [CUST], "Below is our quote CBSXY08012601.", "2026-08-01T12:00:00+00:00")])
+    c = analyze(t, S, ME, now=at(49))
+    assert (c.stage, c.touches, c.followup_no) == ("awaiting_customer", 1, 4)

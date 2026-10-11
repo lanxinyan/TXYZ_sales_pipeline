@@ -61,6 +61,10 @@ class App:
         self._scan_guard = threading.Lock()      # one scan at a time
         self.scanning = False
         self.last_scan: str | None = None
+        try:
+            pipeline.upgrade_plans()
+        except Exception:
+            log.exception("re-planning older items failed")
 
     def counts(self) -> dict:
         return {v: len(self.store.list(st)) for v, st in VIEWS.items()}

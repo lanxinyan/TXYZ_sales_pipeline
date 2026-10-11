@@ -281,3 +281,14 @@ def test_gmail_rate_limit_pauses_the_scan_instead_of_failing(demo):
     gmail.get_thread = busy
     counts = pipe.scan(rescan=True)
     assert any(k.startswith("paused: Gmail's per-minute limit") for k in counts)
+
+
+def test_items_planned_by_an_older_version_are_planned_again(demo):
+    store, gmail, _, pipe, _ = demo
+    rec = store.get("demo-fu2")
+    old = [dict(rec.plan[0], draft=dict(rec.plan[0]["draft"], cc=YANI))]   # how the old version planned it
+    store.update("demo-fu2", plan=old)
+    store.set_meta("plan_version", "1")
+    assert pipe.upgrade_plans() >= 1
+    assert store.get("demo-fu2").plan[0]["draft"]["cc"] == ""
+    assert pipe.upgrade_plans() == 0                                       # only once

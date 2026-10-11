@@ -70,3 +70,10 @@ def test_grades():
     assert grade("pi@nih.gov")[0] == "A"
     assert grade("lab@stanford.edu")[0] == "B"
     assert grade("buyer@pharma.example")[0] == ""
+
+
+def test_a_placeholder_feed_folder_gets_a_clear_message(demo):
+    store, gmail, pipe = demo
+    pipe.s.crm_feed_dir = r"C:\Users\<you>\OneDrive\Cowork"
+    with pytest.raises(ValueError, match="copy the path"):
+        export(pipe)

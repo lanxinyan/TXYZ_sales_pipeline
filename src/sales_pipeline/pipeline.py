@@ -116,6 +116,10 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 
 # ---------- the pipeline ----------
 
+# Bump when the plan rules change: open items saved by an older version are planned again
+# (e.g. version 2: customer emails go to the customer only, never to colleagues).
+PLAN_VERSION = "2"
+
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gmail=None, zoho: ZohoCRM | None = None,
                  llm=None, crm=None, templates=None):
@@ -316,6 +320,27 @@ class Pipeline:
             due = self.promote_due()
         counts.update({k: counts.get(k, 0) + v for k, v in due.items()})
         return counts
+
+    def upgrade_plans(self) -> int:
+        """Re-plan open items saved by an older version, so its rules don't linger."""
+        from .tasks import build_plan
+
+        if self.store.meta("plan_version") == PLAN_VERSION:
+            return 0
+        n = 0
+        for rec in self.store.list(["ready", "needs_review", "scheduled", "failed"]):
+            if not rec.order:
+                continue
+            try:
+                plan = build_plan(rec.kind, rec.order, rec.conv, rec.subject, self.s,
+                                  self._context(rec.kind, rec.order, None, rec.conv), rec.plan)
+            except Exception as e:
+                log.warning("could not re-plan %s: %s", rec.thread_id, e)
+                continue
+            self.store.update(rec.thread_id, plan=plan)
+            n += 1
+        self.store.set_meta("plan_version", PLAN_VERSION)
+        return n
 
     def promote_due(self) -> dict[str, int]:
         """Follow-ups whose day has come move from Upcoming to To decide."""

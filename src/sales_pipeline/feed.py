@@ -373,8 +373,17 @@ def export(pipeline, everything: bool = False, days: int = 30, out_dir: str | No
     if not sections:
         return {"path": None, "conversations": 0, "entries": 0, "new_inquiries": 0}
     now = datetime.now(timezone.utc)
-    folder = Path(out_dir or s.crm_feed_dir).expanduser()
-    folder.mkdir(parents=True, exist_ok=True)
+    raw = out_dir or s.crm_feed_dir
+    fix = (f"CRM_FEED_DIR in .env isn't a folder Windows can use ({raw}). Open the Cowork folder in File "
+           "Explorer, click the address bar, copy the path, paste it after CRM_FEED_DIR=, save .env and "
+           "restart Sales Desk.")
+    if re.search(r'[<>"|?*]', raw):
+        raise ValueError(fix)
+    folder = Path(raw).expanduser()
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise ValueError(f"{fix} ({e.strerror or e})") from e
     path = folder / f"gmail-feed-{now.astimezone():%Y-%m-%d-%H%M%S}.md"
     path.write_text(render(sections, s, now, left_out), encoding="utf-8")
     store.mark_feed([k for x in sections for k in x["keys"]])

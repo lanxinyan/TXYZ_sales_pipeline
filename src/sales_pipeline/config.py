@@ -28,6 +28,7 @@ DEFAULT_INTERNAL_DOMAINS = [
     "pr-abacebiology.com",
     "creative-biomart.com",
     "creative-enzymes.com",
+    "profacgen.com",          # sister company
 ]
 
 

@@ -292,3 +292,12 @@ def test_items_planned_by_an_older_version_are_planned_again(demo):
     assert pipe.upgrade_plans() >= 1
     assert store.get("demo-fu2").plan[0]["draft"]["cc"] == ""
     assert pipe.upgrade_plans() == 0                                       # only once
+
+
+def test_a_new_internal_domain_takes_effect_on_the_next_scan(demo, settings):
+    store, gmail, _, pipe, _ = demo
+    pipe.scan()
+    assert store.get("demo-usa").kind == "quote_request"
+    settings.internal_domains.append("fjord-bio.example")      # e.g. a sister company added in .env
+    pipe.scan()                                                 # no rescan asked for
+    assert store.get("demo-usa").kind == "other" and store.get("demo-usa").status == "skipped"

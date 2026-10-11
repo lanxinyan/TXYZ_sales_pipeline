@@ -286,6 +286,8 @@ class Pipeline:
         queries = [query] if query else [self.s.gmail_query, self.s.followup_query]
         seen: list[str] = []
         history = getattr(self.gmail, "history", {})
+        # Who counts as "us" (INTERNAL_DOMAINS ...). When that changes, every thread is read again once.
+        rules = ",".join(sorted(self.s.internal_domains + self.s.system_domains))
         try:
             for q in queries:
                 with lock:
@@ -298,16 +300,18 @@ class Pipeline:
                                      (existing.kind == "order" and existing.status == "done")):
                         continue   # handled orders stay handled; conversations reopen when the customer writes
                     # Nothing changed in the thread since last time: don't even download it.
-                    h = history.get(tid)
-                    if existing and not rescan and h and h == self.store.seen_history(tid):
+                    h = history.get(tid) or ""
+                    mark, prev = f"{h}|{rules}", self.store.seen_history(tid)
+                    if existing and not rescan and h and prev == mark:
                         continue
+                    same_rules = bool(prev) and prev.split("|", 1)[-1] == rules
                     thread = self.gmail.get_thread(tid, attachments=False)
-                    if h:
-                        self.store.set_seen_history(tid, h)
                     # Only re-read a thread when new replies arrived (or when asked to).
-                    if existing and not rescan and existing.message_count == len(thread.messages):
+                    if existing and not rescan and same_rules and existing.message_count == len(thread.messages):
+                        self.store.set_seen_history(tid, mark)
                         continue
                     status = self.process_thread(thread)
+                    self.store.set_seen_history(tid, mark)
                 log.info("%s  %-12s %s", tid, status, thread.subject)
                 counts[status] = counts.get(status, 0) + 1
         except Exception as e:

@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS ignored (domain TEXT PRIMARY KEY, ts TEXT);
 CREATE TABLE IF NOT EXISTS crm_logged (message_id TEXT PRIMARY KEY, thread_id TEXT, note_id TEXT, ts TEXT);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS feed_sent (key TEXT PRIMARY KEY, ts TEXT);
+CREATE TABLE IF NOT EXISTS seen (thread_id TEXT PRIMARY KEY, history_id TEXT);
 CREATE TABLE IF NOT EXISTS feed_items (id INTEGER PRIMARY KEY AUTOINCREMENT, ts TEXT, thread_id TEXT, text TEXT,
                                        exported INTEGER DEFAULT 0);
 """
@@ -180,6 +181,13 @@ class Store:
 
     def set_meta(self, key: str, value: str) -> None:
         self._write("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))
+
+    def seen_history(self, thread_id: str) -> str | None:
+        rows = self._all("SELECT history_id FROM seen WHERE thread_id=?", (thread_id,))
+        return rows[0]["history_id"] if rows else None
+
+    def set_seen_history(self, thread_id: str, history_id: str) -> None:
+        self._write("INSERT OR REPLACE INTO seen VALUES (?,?)", (thread_id, history_id))
 
     # ---------- what has already gone to Cowork in a Gmail feed ----------
 

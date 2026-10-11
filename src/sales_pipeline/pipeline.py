@@ -275,27 +275,43 @@ class Pipeline:
     def scan(self, query: str | None = None, limit: int = 50, rescan: bool = False, lock=None) -> dict[str, int]:
         """Re-read new/changed threads. `lock` (the dashboard's) is held one thread at a
         time, so your clicks are never kept waiting for the whole scan."""
+        from .gmail_source import rate_limited
+
         lock = lock or nullcontext()
         counts: dict[str, int] = {}
         queries = [query] if query else [self.s.gmail_query, self.s.followup_query]
         seen: list[str] = []
-        for q in queries:
-            with lock:
-                found = self.gmail.search(q, limit)
-            seen += [tid for tid in found if tid not in seen]
-        for tid in seen:
-            with lock:
-                existing = self.store.get(tid)
-                if existing and (existing.status in ("pushed", "awaiting_send") or
-                                 (existing.kind == "order" and existing.status == "done")):
-                    continue   # handled orders stay handled; conversations reopen when the customer writes
-                thread = self.gmail.get_thread(tid, attachments=False)
-                # Only re-read a thread when new replies arrived (or when asked to).
-                if existing and not rescan and existing.message_count == len(thread.messages):
-                    continue
-                status = self.process_thread(thread)
-            log.info("%s  %-12s %s", tid, status, thread.subject)
-            counts[status] = counts.get(status, 0) + 1
+        history = getattr(self.gmail, "history", {})
+        try:
+            for q in queries:
+                with lock:
+                    found = self.gmail.search(q, limit)
+                seen += [tid for tid in found if tid not in seen]
+            for tid in seen:
+                with lock:
+                    existing = self.store.get(tid)
+                    if existing and (existing.status in ("pushed", "awaiting_send") or
+                                     (existing.kind == "order" and existing.status == "done")):
+                        continue   # handled orders stay handled; conversations reopen when the customer writes
+                    # Nothing changed in the thread since last time: don't even download it.
+                    h = history.get(tid)
+                    if existing and not rescan and h and h == self.store.seen_history(tid):
+                        continue
+                    thread = self.gmail.get_thread(tid, attachments=False)
+                    if h:
+                        self.store.set_seen_history(tid, h)
+                    # Only re-read a thread when new replies arrived (or when asked to).
+                    if existing and not rescan and existing.message_count == len(thread.messages):
+                        continue
+                    status = self.process_thread(thread)
+                log.info("%s  %-12s %s", tid, status, thread.subject)
+                counts[status] = counts.get(status, 0) + 1
+        except Exception as e:
+            if not rate_limited(e):
+                raise
+            # Google's per-minute Gmail limit: keep what was read, carry on at the next scan.
+            log.warning("Gmail rate limit reached; the scan continues next time: %s", e)
+            counts["paused: Gmail's per-minute limit, continues at the next scan"] = 1
         with lock:
             due = self.promote_due()
         counts.update({k: counts.get(k, 0) + v for k, v in due.items()})

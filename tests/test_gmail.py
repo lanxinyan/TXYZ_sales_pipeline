@@ -8,7 +8,7 @@ class _Exec:
     def __init__(self, value):
         self.value = value
 
-    def execute(self):
+    def execute(self, num_retries=0):
         return self.value
 
 

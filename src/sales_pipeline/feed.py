@@ -235,6 +235,8 @@ def collect(pipeline, everything: bool = False, days: int = 30, lock=None, left_
                 thread = pipeline.gmail.get_thread(rec.thread_id, attachments=False) if pipeline.gmail else None
         except Exception as e:
             log.warning("feed: could not read %s: %s", rec.thread_id, e)
+            if left_out is not None:     # not marked as sent, so it comes in the next feed
+                left_out.append(f"{email or rec.subject} (Gmail couldn't be read just now; in the next feed)")
             continue
         if thread is None:
             continue
@@ -307,7 +309,7 @@ def render(sections: list[dict], s, now: datetime | None = None, left_out: list 
          f"{len(sections)} conversation(s) · {n_entries} note entr{'y' if n_entries == 1 else 'ies'} · "
          f"{n_new} without an Inquiry number in Gmail", ""]
     if left_out:
-        L += [f"Left out because the quote/order number belongs to another team (never touched): "
+        L += [f"Left out (another team's quote/order number, never touched; or Gmail busy): "
               f"{'; '.join(left_out)}", ""]
     if not sections:
         L += ["Nothing new since the last feed."]

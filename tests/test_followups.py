@@ -255,3 +255,29 @@ def test_the_chinese_accounting_brief_is_only_for_accounting(settings):
     to_customer = {"to": "dr.lee@harborline-bio.example", "subject": "Re: Quote", "body": "Hi Dana,"}
     assert problems(to_customer, settings) == []
     assert problems(dict(to_customer, body="Hi Dana, ask usa@creative-biostructure.com"), settings)
+
+
+def test_unchanged_threads_are_not_downloaded_again(demo):
+    store, gmail, _, pipe, _ = demo
+    gmail.history = {tid: "h1" for tid in gmail.threads}      # Gmail's change marker, from the search
+    calls = []
+    real = gmail.get_thread
+    gmail.get_thread = lambda tid, attachments=True: calls.append(tid) or real(tid, attachments)
+    pipe.scan()
+    calls.clear()
+    pipe.scan()
+    assert calls == []                                          # nothing changed: nothing downloaded
+    gmail.history["demo-fu2"] = "h2"
+    pipe.scan()
+    assert calls == ["demo-fu2"]
+
+
+def test_gmail_rate_limit_pauses_the_scan_instead_of_failing(demo):
+    store, gmail, _, pipe, _ = demo
+
+    def busy(tid, attachments=True):
+        raise RuntimeError("<HttpError 403 ... 'Quota exceeded for quota metric', 'reason': 'rateLimitExceeded'>")
+
+    gmail.get_thread = busy
+    counts = pipe.scan(rescan=True)
+    assert any(k.startswith("paused: Gmail's per-minute limit") for k in counts)

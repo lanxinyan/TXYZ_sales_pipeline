@@ -19,6 +19,14 @@ LABEL_SYNCED = "Zoho/Synced"
 LABEL_SKIPPED = "Zoho/Not an order"
 LABEL_QUOTE = "Zoho/Quote request"
 ALL_LABELS = (LABEL_REVIEW, LABEL_SYNCED, LABEL_SKIPPED, LABEL_QUOTE)
+# Google allows only so many Gmail requests per minute; a request over the limit is retried a
+# few times with growing pauses before giving up (the scan then resumes at the next run).
+RETRIES = 4
+
+
+def rate_limited(e: Exception) -> bool:
+    text = str(e)
+    return any(k in text for k in ("rateLimitExceeded", "userRateLimitExceeded", "Quota exceeded", " 429 "))
 
 
 def _b64(data: str) -> bytes:
@@ -53,6 +61,7 @@ class GmailSource:
                 f.write(creds.to_json())
         self.svc = build("gmail", "v1", credentials=creds, cache_discovery=False)
         self._label_ids: dict[str, str] = {}
+        self.history: dict[str, str] = {}   # thread id -> historyId, from the last search
 
     # ---------- reading ----------
 
@@ -60,18 +69,21 @@ class GmailSource:
         ids, token = [], None
         while len(ids) < limit:
             resp = self.svc.users().threads().list(
-                userId="me", q=query, maxResults=min(100, limit - len(ids)), pageToken=token).execute()
-            ids += [t["id"] for t in resp.get("threads", [])]
+                userId="me", q=query, maxResults=min(100, limit - len(ids)), pageToken=token).execute(num_retries=RETRIES)
+            for t in resp.get("threads", []):
+                ids.append(t["id"])
+                if t.get("historyId"):     # changes whenever anything in the thread changes
+                    self.history[t["id"]] = t["historyId"]
             token = resp.get("nextPageToken")
             if not token:
                 break
         return ids
 
     def profile_email(self) -> str:
-        return self.svc.users().getProfile(userId="me").execute()["emailAddress"].lower()
+        return self.svc.users().getProfile(userId="me").execute(num_retries=RETRIES)["emailAddress"].lower()
 
     def get_thread(self, thread_id: str, attachments: bool = True) -> EmailThread:
-        raw = self.svc.users().threads().get(userId="me", id=thread_id, format="full").execute()
+        raw = self.svc.users().threads().get(userId="me", id=thread_id, format="full").execute(num_retries=RETRIES)
         # Unsent drafts (including ones Sales Desk prepared) are not part of the conversation.
         messages = [self._message(m, attachments) for m in raw.get("messages", [])
                     if "DRAFT" not in m.get("labelIds", [])]
@@ -114,7 +126,7 @@ class GmailSource:
                 data = body.get("data")
                 if not data and body.get("attachmentId"):
                     data = self.svc.users().messages().attachments().get(
-                        userId="me", messageId=msg_id, id=body["attachmentId"]).execute()["data"]
+                        userId="me", messageId=msg_id, id=body["attachmentId"]).execute(num_retries=RETRIES)["data"]
                 if data:
                     atts.append(Attachment(part["filename"], "application/pdf", _b64(data)))
         elif mime == "text/plain" and body.get("data"):
@@ -128,12 +140,12 @@ class GmailSource:
 
     def _label_id(self, name: str) -> str:
         if not self._label_ids:
-            for lab in self.svc.users().labels().list(userId="me").execute().get("labels", []):
+            for lab in self.svc.users().labels().list(userId="me").execute(num_retries=RETRIES).get("labels", []):
                 self._label_ids[lab["name"]] = lab["id"]
         if name not in self._label_ids:
             lab = self.svc.users().labels().create(
                 userId="me", body={"name": name, "labelListVisibility": "labelShow",
-                                   "messageListVisibility": "show"}).execute()
+                                   "messageListVisibility": "show"}).execute(num_retries=RETRIES)
             self._label_ids[name] = lab["id"]
         return self._label_ids[name]
 
@@ -142,7 +154,7 @@ class GmailSource:
         add = [self._label_id(name)]
         remove = [self._label_id(n) for n in ALL_LABELS if n != name]
         self.svc.users().threads().modify(
-            userId="me", id=thread_id, body={"addLabelIds": add, "removeLabelIds": remove}).execute()
+            userId="me", id=thread_id, body={"addLabelIds": add, "removeLabelIds": remove}).execute(num_retries=RETRIES)
 
     # ---------- drafts (you send them from Gmail) ----------
 
@@ -165,14 +177,14 @@ class GmailSource:
         message = {"raw": raw}
         if thread_id:
             message["threadId"] = thread_id
-        d = self.svc.users().drafts().create(userId="me", body={"message": message}).execute()
+        d = self.svc.users().drafts().create(userId="me", body={"message": message}).execute(num_retries=RETRIES)
         return {"id": d["id"], "thread_id": d.get("message", {}).get("threadId") or thread_id}
 
     def draft_exists(self, draft_id: str) -> bool:
         from googleapiclient.errors import HttpError
 
         try:
-            self.svc.users().drafts().get(userId="me", id=draft_id, format="minimal").execute()
+            self.svc.users().drafts().get(userId="me", id=draft_id, format="minimal").execute(num_retries=RETRIES)
             return True
         except HttpError as e:
             if getattr(e, "resp", None) is not None and e.resp.status == 404:
@@ -180,4 +192,4 @@ class GmailSource:
             raise
 
     def delete_draft(self, draft_id: str) -> None:
-        self.svc.users().drafts().delete(userId="me", id=draft_id).execute()
+        self.svc.users().drafts().delete(userId="me", id=draft_id).execute(num_retries=RETRIES)

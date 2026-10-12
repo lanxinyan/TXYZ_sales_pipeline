@@ -77,3 +77,47 @@ def test_a_placeholder_feed_folder_gets_a_clear_message(demo):
     pipe.s.crm_feed_dir = r"C:\Users\<you>\OneDrive\Cowork"
     with pytest.raises(ValueError, match="copy the path"):
         export(pipe)
+
+
+def test_a_promised_quote_is_not_a_quote_sent(settings):
+    """Website inquiry -> internal notes -> Tony answers ("we will send a formal quote") -> customer
+    replies -> Tony answers again. Nothing here is a quote."""
+    from sales_pipeline.conversation import analyze
+    from sales_pipeline.demo import INQ, USA, WEB_FORM, YANI
+    from sales_pipeline.feed import read_thread
+    from sales_pipeline.models import EmailThread
+
+    settings.user_email = ME
+    cust, s = "pat@univ-demo.edu", "Fwd: Pharmacosomes Production - Creative Biostructure (ID: BS01-M-1)"
+    form = WEB_FORM.format(date="Fri, Oct 9, 2026", topic="Pharmacosomes Production", n="9", first="pat",
+                           last="Lane", phone="555-0100", company="Univ Demo", email=cust, text="Hydrophobic drugs.")
+
+    def m(i, sender, to, body, day, cc=()):
+        return EmailMessage(f"r{i}", sender, to, list(cc), s, f"2026-10-{day}T12:{i:02d}:00+00:00", body,
+                            message_id=f"<r{i}@m>")
+
+    promise = "\n\nOnce we hear back, we will send a formal quote and turnaround time.\n\nBest regards,\nTony"
+    t = EmailThread("rq", s, [
+        m(1, INQ, [YANI, ME], form, "09"),
+        m(2, YANI, [USA], "Extra Information", "09", cc=[ME]),
+        m(3, YANI, [], "Inquiry-0026001 crm updated", "09", cc=[ME]),
+        m(4, USA, [YANI], "具体药物分子是啥知道么\n5 ml /$381\n3周", "10", cc=[ME]),
+        m(5, ME, [cust], "Dear Dr. Lane,\n\nYes, we can help with this. Are the drugs commercial?" + promise, "12",
+          cc=[YANI, INQ]),
+        m(6, cust, [ME], "They are commercially available inhibitors.", "12"),
+        m(7, ME, [USA], "客户说 They are commercially available inhibitors.", "12", cc=[YANI]),
+        m(8, ME, [cust], "Dear Pat,\n\nThank you, that helps. To prepare the quote, could you share the "
+          "compounds?" + promise, "12", cc=[YANI]),
+    ], "https://mail.google.com/")
+    info = read_thread(t, None, settings)
+    assert [(e.code, e.words) for e in info["entries"]] == [("f", "first reply"), ("r", "replied"), ("f", "answered")]
+    assert info["quote_way"] is None and info["quotes"] == [] and info["inquiry"] == ["Inquiry-0026001"]
+    assert not analyze(t, settings, ME).quote_sent          # follow-ups won't ask about "the quote"
+
+    # Real quotes still count: a quote file, a new quote number, or "Below is our quote".
+    t.messages.append(m(9, ME, [cust], "Dear Pat,\n\nPlease find attached our formal quotation.", "13"))
+    t.messages[-1].attachment_names = ["Quotation_CBSXY10132601.pdf"]
+    t.messages.append(m(10, ME, [cust], "Dear Pat,\n\nBelow is our quote: $4,200, 3 weeks.", "14"))
+    info = read_thread(t, None, settings)
+    assert [(e.code, e.words) for e in info["entries"][3:]] == [("q", "CBSXY10132601"), ("q", "quote sent")]
+    assert analyze(t, settings, ME).quote_sent

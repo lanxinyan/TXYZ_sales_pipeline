@@ -136,7 +136,7 @@ dialog .acts{justify-content:flex-end}
 <dialog id="conflict"><h4>Before drafting, I checked Gmail again and found:</h4><ul id="conflict-list"></ul>
   <div class="acts"><button class="btn" id="c-cancel">Don't draft</button><button class="btn primary" id="c-force">Draft anyway</button></div></dialog>
 <dialog id="feed-dlg"><h4>Feed for Cowork</h4><div id="feed-text"></div>
-  <div class="acts" style="margin-top:14px"><button class="btn primary" id="feed-ok">OK</button></div></dialog>
+  <div class="acts" style="margin-top:14px"><button class="btn" id="feed-all" title="Write a feed with everything from the last 30 days, including what earlier feeds already had">Write again with everything</button><button class="btn primary" id="feed-ok">OK</button></div></dialog>
 <script>
 const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
 const KIND={customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
@@ -318,12 +318,14 @@ async function outcome(o,label){const t=tasks[sel];if(!t||!confirm(`Tag “${lab
 async function ignore(){const t=tasks[sel];if(!t||!confirm("Never suggest follow-ups for this sender's domain?"))return;
   try{await api(`tasks/${t.id}/ignore`,{});toast("Ignored.");await load()}catch(e){toast(e.message)}}
 function busyEditing(){return !!document.querySelector("textarea:focus,input:focus")||$("#conflict").open||$("#feed-dlg").open}
-$("#feed").onclick=async()=>{const b=$("#feed");b.disabled=true;b.textContent="Writing…";
-  try{const j=await api("crm-feed",{});const f=j.feed;
+async function writeFeed(all){const b=$("#feed");b.disabled=true;b.textContent="Writing…";
+  try{const j=await api("crm-feed",{all});const f=j.feed;
     $("#feed-text").innerHTML=f.path?`<p>${f.conversations} conversation(s), ${f.entries} note entr${f.entries===1?"y":"ies"}, ${f.new_inquiries} without an Inquiry number.</p>
-      <p>Saved as<br><code style="word-break:break-all">${esc(f.path)}</code></p><p class="d">In Cowork, say: <i>Apply the newest Gmail feed in this folder.</i></p>`
+      <p>Saved as<br><code style="word-break:break-all">${esc(f.path)}</code></p><p class="d">In Cowork, say: <i>Follow '2 - Apply the Gmail feed.md' for the newest Gmail feed.</i></p>`
       :`<p>Nothing new for Cowork since the last feed.</p>`;$("#feed-dlg").showModal()}
-  catch(e){toast(e.message)} b.disabled=false;b.textContent="Feed for Cowork"};
+  catch(e){toast(e.message)} b.disabled=false;b.textContent="Feed for Cowork"}
+$("#feed").onclick=()=>writeFeed(false);
+$("#feed-all").onclick=()=>{$("#feed-dlg").close();writeFeed(true)};
 $("#feed-ok").onclick=()=>$("#feed-dlg").close();
 $("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="Scanning…";setTimeout(()=>load(true),800);
   try{const j=await api("scan",{});const r=j.result||{};toast(r["already scanning"]?"Already scanning; the list updates as it goes.":"Scan: "+(Object.entries(r).map(([k,v])=>v+" "+k.replace("_"," ")).join(", ")||"nothing new"));await load(true)}

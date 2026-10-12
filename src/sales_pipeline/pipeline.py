@@ -119,6 +119,9 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 # Bump when the plan rules change: open items saved by an older version are planned again
 # (e.g. version 2: customer emails go to the customer only, never to colleagues).
 PLAN_VERSION = "2"
+# Bump when the way threads are read changes: every thread is then read again once
+# (e.g. version 2: "we will send a formal quote" is a promise, not a quote sent).
+READ_VERSION = "2"
 
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gmail=None, zoho: ZohoCRM | None = None,
@@ -287,7 +290,7 @@ class Pipeline:
         seen: list[str] = []
         history = getattr(self.gmail, "history", {})
         # Who counts as "us" (INTERNAL_DOMAINS ...). When that changes, every thread is read again once.
-        rules = ",".join(sorted(self.s.internal_domains + self.s.system_domains))
+        rules = READ_VERSION + ":" + ",".join(sorted(self.s.internal_domains + self.s.system_domains))
         try:
             for q in queries:
                 with lock:

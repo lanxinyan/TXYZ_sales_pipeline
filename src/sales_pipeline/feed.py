@@ -22,8 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .conversation import (ACK_ONLY, CRM_REF, DECLINE, ORDER_INTENT, QUOTE_ASK, QUOTE_SENT, Who, display_name,
-                           first_line, form_fields, forward_origin, fresh_text, owner_is_me, parse_date, short)
+from .conversation import (ACK_ONLY, CRM_REF, DECLINE, ORDER_INTENT, QUOTE_ASK, Who, display_name, first_line,
+                           form_fields, forward_origin, fresh_text, owner_is_me, parse_date, quote_statement, short)
 from .models import EmailMessage, EmailThread
 from .store import Record
 
@@ -96,6 +96,7 @@ def read_thread(thread: EmailThread, rec: Record, s, ignored=frozenset()) -> dic
            "channel": None, "internal_people": [], "last_customer": None}
     seen_inbound = False
     since_customer = 0
+    customer_emails = 0     # how many times the customer has written (the inquiry included)
     for m in msgs:
         at = parse_date(m.date)
         if not at:
@@ -141,15 +142,18 @@ def read_thread(thread: EmailThread, rec: Record, s, ignored=frozenset()) -> dic
                 if sender == me:
                     out["tony_replied"] = out["tony_replied"] or at
                 nums = quote_numbers(text, m.attachment_names, s)
-                quoted = QUOTE_SENT.search(text) or nums or any(re.search(r"quot", a, re.I) for a in m.attachment_names)
-                if quoted:
-                    out["quotes"] += [n for n in nums if n not in out["quotes"]]
+                new_nums = [n for n in nums if n not in out["quotes"]]   # an old number mentioned again isn't a new quote
+                statement = quote_statement(text)       # "Below is our quote", not "we will send a quote"
+                quote_file = [a for a in m.attachment_names if re.search(r"quot", a, re.I)]
+                if new_nums or statement or quote_file:
+                    out["quotes"] += new_nums
                     pdf = [a for a in _pdfs(m) if re.search(r"quot", a, re.I) or any(n in a for n in nums)]
-                    out["quote_way"] = {
-                        "date": at, "numbers": nums, "pdf": pdf, "formal": bool(re.search(r"formal quot", text, re.I))}
-                    add("q", ", ".join(nums) or "quote sent", by)
+                    out["quote_way"] = {"date": at, "numbers": new_nums or nums, "pdf": pdf,
+                                        "formal": bool(re.search(r"formal quot", statement, re.I))}
+                    add("q", ", ".join(new_nums or nums) or "quote sent", by)
                 elif since_customer == 1:
-                    add("f", "answered" if seen_inbound else "first email", by)
+                    add("f", ("first reply" if customer_emails == 1 else "answered") if seen_inbound
+                        else "first email", by)
                 else:   # the 1st email after theirs is the answer; then follow-ups 1, 2, 3, 4
                     add("f", f"follow-up {since_customer - 1}", by)
                 if TELECON.search(text):
@@ -169,6 +173,7 @@ def read_thread(thread: EmailThread, rec: Record, s, ignored=frozenset()) -> dic
                 add("", "teleconference", "customer")
             seen_inbound = True
             since_customer = 0
+            customer_emails += 1
             out["last_customer"] = at
     return out
 

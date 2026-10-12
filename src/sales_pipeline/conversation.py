@@ -36,6 +36,10 @@ QUOTE_SENT = re.compile(
     r"\b(?:our|the attached|attached|formal)\s+(?:formal\s+)?quot(?:e|ation)\b|"
     r"\bquot(?:e|ation)\b[^.\n]{0,40}\b(?:below|attached)\b|^\s*QUOTATION\b|\bQuotation[_ ]Creative",
     re.I | re.M)
+# "Once we hear back, we will send a formal quote" promises a quote; it doesn't send one.
+QUOTE_PROMISE = re.compile(
+    r"\b(?:will|would|shall|once|as soon as|going to|to prepare|prepare|preparing|upon|happy to|glad to|"
+    r"can (?:send|provide|prepare)|could (?:send|provide|prepare)|after (?:we|you|receiving|getting))\b", re.I)
 DECLINE = re.compile(
     r"not interested|no longer (?:need|interested|required|pursu)|decided (?:not|to go with|against)|"
     r"go(?:ing)? with (?:another|a different|other)|(?:another|other|different) (?:vendor|supplier|provider|company)|"
@@ -109,6 +113,24 @@ def sentence_with(text: str, rx: re.Pattern, statements_only: bool = False) -> s
             continue
         return sentence[:240]
     return ""
+
+
+def quote_statement(text: str) -> str:
+    """The sentence saying a quote is attached/below/sent, or "" (promises don't count)."""
+    for m in QUOTE_SENT.finditer(text):
+        start = max(text.rfind(c, 0, m.start()) for c in ".?!\n") + 1
+        ends = [i for i in (text.find(c, m.end()) for c in ".?!\n") if i >= 0]
+        sentence = " ".join(text[start:min(ends) if ends else len(text)].split())
+        if not QUOTE_PROMISE.search(sentence):
+            return sentence
+    return ""
+
+
+def quote_sent_in(text: str, attachment_names: list[str], code_regex: str) -> bool:
+    """Did this email of ours send a quote? A quote file, our quote number, or a sentence like
+    "Below is our quote" / "Please find the attached quotation"."""
+    return (any(re.search(r"quot", a, re.I) for a in attachment_names) or bool(re.search(code_regex, text))
+            or bool(quote_statement(text)))
 
 
 def form_fields(body: str) -> dict:
@@ -252,8 +274,7 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                 g = GREETING.match(next((ln for ln in text.splitlines() if ln.strip()), ""))
                 if g and g.group(2).strip():
                     conv.salutation = {"word": g.group(1).capitalize(), "name": g.group(2).strip()}
-                if (QUOTE_SENT.search(text) or re.search(s.order_code_regex, text) or
-                        any(re.search(r"quot", a, re.I) for a in m.attachment_names)):
+                if quote_sent_in(text, m.attachment_names, s.order_code_regex):
                     conv.quote_sent = True
             elif origin and origin.get("email") and who.customer(origin["email"]):
                 # A colleague or the inquiry@ mailbox forwarded what the customer wrote.

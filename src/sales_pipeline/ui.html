@@ -138,9 +138,10 @@ dialog .acts{justify-content:flex-end}
 <dialog id="feed-dlg"><h4>Feed for Cowork</h4><div id="feed-text"></div>
   <div class="acts" style="margin-top:14px"><button class="btn" id="feed-all" title="Write a feed with everything from the last 30 days, including what earlier feeds already had">Write again with everything</button><button class="btn primary" id="feed-ok">OK</button></div></dialog>
 <script>
-const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
+const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["revisit","Revisit"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
 const KIND={customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
 let view="todo", tasks=[], counts={}, sel=0, info={tags:{}};
+const deciding=()=>view==="todo"||view==="revisit";   // views where you approve items
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const money=n=>n==null?"":"$"+Number(n).toLocaleString(undefined,{maximumFractionDigits:0});
@@ -173,7 +174,7 @@ function rowWhy(t){
 function renderList(){
   if(view==="activity"){
     const a=window._activity; $("#list").innerHTML=a.length?a.map(x=>`<div class="act-row"><div class="when">${esc(new Date(x.ts).toLocaleString())}</div>${esc(x.text)}</div>`).join(""):`<div class="empty">Nothing yet. Everything Sales Desk does on its own is listed here.</div>`;return}
-  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${info.scanning&&view==="todo"?"Reading your Gmail… items appear here as they are found (the first scan can take a minute or two).":({todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",send:"No drafts waiting in Gmail."}[view]||"Nothing here.")}</div>`;return}
+  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${info.scanning&&view==="todo"?"Reading your Gmail… items appear here as they are found (the first scan can take a minute or two).":({todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",revisit:"Nobody to revisit: no conversation went quiet 30 days to 3 months ago.",send:"No drafts waiting in Gmail."}[view]||"Nothing here.")}</div>`;return}
   $("#list").innerHTML=tasks.map((t,i)=>{const o=t.order||{};
     return `<div class="row ${i===sel?"sel":""}" data-i="${i}"><span class="pill ${t.level}">${t.level}</span>
       <span class="t">${esc(t.title||t.subject)} ${t.action?`<span class="tag act">${esc(t.action)}</span>`:""}</span>
@@ -190,7 +191,7 @@ function timeline(c){
     <span class="txt"><span class="k ${esc(e.kind)}">${esc(KIND[e.kind]||e.kind)}</span>${esc(e.text)}</span>`).join("")}</div></section>`;
 }
 function stepHtml(s,t){
-  const editable=(s.state==="pending"||s.state==="failed")&&(view==="todo"||view==="upcoming");
+  const editable=(s.state==="pending"||s.state==="failed")&&(deciding()||view==="upcoming");
   const label={pending:s.gated?"needs your OK":"will run",drafted:"in Gmail drafts",sent:"sent",done:"done",skipped:"skipped",failed:"failed"}[s.state]||s.state;
   let h=`<div class="step" data-step="${esc(s.id)}"><input type="checkbox" ${s.enabled?"checked":""} ${editable?"":"disabled"}>
     <div><div>${esc(s.title)}</div>${s.detail?`<div class="d">${esc(s.detail)}</div>`:""}</div><span class="st ${s.state}">${label}</span>`;
@@ -218,7 +219,7 @@ function stepHtml(s,t){
   return h+"</div>";
 }
 function outcomesHtml(t){
-  if(t.kind==="order"||!(view==="todo"||view==="upcoming"))return"";
+  if(t.kind==="order"||!(deciding()||view==="upcoming"))return"";
   const tg=info.tags||{};const b=[];
   if(tg.ordered)b.push(`<button class="btn small" data-out="ordered">${esc(tg.ordered)}</button>`);
   if(tg.lost)b.push(`<button class="btn small" data-out="lost">${esc(tg.lost)}</button>`);
@@ -234,7 +235,7 @@ function renderDetail(){
   if(!t){d.innerHTML=`<div class="empty">Nothing selected.</div>`;return}
   const o=t.order||{customer:{},items:[]}; const c=o.customer||{}; const cv=t.conv||{};
   const routine=t.plan.filter(s=>!s.gated), gated=t.plan.filter(s=>s.gated);
-  const ro=view!=="todo"?"disabled":"";
+  const ro=!deciding()?"disabled":"";
   const sig=(cv.signals||[]).filter(x=>x.kind==="declined"||x.kind==="wants_to_order");
   d.innerHTML=`
    <div class="dh"><h2>${esc(t.title||t.subject)}</h2><span class="pill ${t.level}" style="grid-row:auto">${t.level} · ${t.priority}</span>
@@ -256,9 +257,9 @@ function renderDetail(){
      ${o.notes?`<div class="d" style="margin-top:8px;color:var(--muted)">Notes: ${esc(o.notes)}</div>`:""}</fieldset></section>`:""}
    ${routine.length?`<section><h3>Runs automatically when you approve</h3>${routine.map(s=>stepHtml(s,t)).join("")}</section>`:""}
    ${gated.length?`<section class="gate"><h3>Emails: made as Gmail drafts, you press Send in Gmail</h3>${gated.map(s=>stepHtml(s,t)).join("")}</section>`:""}`;
-  if(view==="todo"||view==="upcoming"){
+  if(deciding()||view==="upcoming"){
     const bar=document.createElement("div");bar.className="bar";
-    bar.innerHTML=view==="todo"?`<button class="btn primary" id="go">Approve &amp; make Gmail drafts<kbd>A</kbd></button><button class="btn" id="skip">Skip<kbd>S</kbd></button>
+    bar.innerHTML=deciding()?`<button class="btn primary" id="go">Approve &amp; make Gmail drafts<kbd>A</kbd></button><button class="btn" id="skip">Skip<kbd>S</kbd></button>
       <span class="hint">Checks Gmail for colleague activity first. Customer emails go to the customer only. You press Send in Gmail. <kbd>J</kbd><kbd>K</kbd> move</span>`
       :`<button class="btn" id="go">Make the follow-up draft now (early)</button><span class="hint">Otherwise it moves to To decide on ${esc(day(t.due_at))}.</span>`;
     document.body.appendChild(bar);
@@ -333,8 +334,8 @@ $("#scan").onclick=async()=>{const b=$("#scan");b.disabled=true;b.textContent="S
 document.addEventListener("keydown",e=>{
   if(e.target.closest("input,textarea,select,dialog")||e.metaKey||e.ctrlKey||e.altKey)return;
   if(e.key==="j"&&sel<tasks.length-1){sel++;render()} else if(e.key==="k"&&sel>0){sel--;render()}
-  else if(view==="todo"&&e.key==="a")approve(false);
-  else if(view==="todo"&&e.key==="s")skip();
+  else if(deciding()&&e.key==="a")approve(false);
+  else if(deciding()&&e.key==="s")skip();
 });
 load();
 setInterval(()=>{if(!busyEditing())load(true)},120000);

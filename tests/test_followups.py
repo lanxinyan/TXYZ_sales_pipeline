@@ -90,7 +90,7 @@ def test_first_reply_uses_the_template_and_goes_to_the_customer_only(demo):
     assert draft["to"] == "rmoreau@northfield.example" and draft["cc"] == ""     # no inquiry@, no Yani
     assert YANI not in str(draft) and "inquiry@" not in str(draft)
     assert draft["subject"] == "Re: Liposome Formulation - Creative Biostructure (ID: BS01-M-261010001)"
-    assert draft["body"].startswith("Hi Robin,") and "Liposome Formulation" in draft["body"]
+    assert draft["body"].startswith("Hi Robin,") and "inquiry about liposome formulation" in draft["body"]
     assert "1-631-559-9269" in draft["body"]
     ex.approve("demo-inquiry")
     send_in_gmail(gmail, ex, "demo-inquiry")
@@ -301,3 +301,34 @@ def test_a_new_internal_domain_takes_effect_on_the_next_scan(demo, settings):
     settings.internal_domains.append("fjord-bio.example")      # e.g. a sister company added in .env
     pipe.scan()                                                 # no rescan asked for
     assert store.get("demo-usa").kind == "other" and store.get("demo-usa").status == "skipped"
+
+
+def test_quiet_conversations_wait_in_revisit_with_a_check_in(demo):
+    store, gmail, _, pipe, ex = demo
+    rec = store.get("demo-revisit")                       # quote sent 50 days ago, nobody followed up
+    assert rec.status == "revisit" and [s["id"] for s in rec.plan] == ["revisit"]
+    d = rec.plan[0]["draft"]
+    assert d["template"] == "revisit_quote" and d["body"].startswith("Dear Dr. Nguyen,")
+    assert "It's been a while" in d["body"] and "update the quote" in d["body"] and d["quote"]["body"]
+    assert d["to"] == "l.nguyen@sparrow-demo.example" and d["cc"] == ""
+    assert store.get("demo-revisit-noquote").plan[0]["draft"]["template"] == "revisit_service"
+    assert store.get("demo-fu4").plan[0]["id"] == "followup_4"     # the natural 4th follow-up is unchanged
+    ex.approve("demo-revisit")
+    rec = send_in_gmail(gmail, ex, "demo-revisit")
+    assert rec.status == "scheduled" and rec.conv.revisited_at and rec.conv.followup_no == 4   # last try in a week
+
+
+def test_your_decisions_survive_reading_the_threads_again(demo):
+    store, gmail, _, pipe, ex = demo
+    pipe.crm = ex.crm = None
+    ex.outcome("demo-fu4", "lost")
+    ex.skip("demo-fu2")
+    ex.snooze("demo-revisit", 3)
+    pipe.scan(rescan=True)                                # e.g. after an update re-reads everything
+    assert store.get("demo-fu4").status == "done" and store.get("demo-fu2").status == "skipped"
+    assert store.get("demo-revisit").status == "scheduled"
+    gmail.threads["demo-fu4"].messages.append(EmailMessage(
+        "w1", "d.okafor@kestrel-labs.example", [ME], [], "Re: Cryo-EM screening quote",
+        datetime.now(timezone.utc).isoformat(), "Sorry for the delay, we are still interested.", message_id="<w1@m>"))
+    pipe.scan()
+    assert store.get("demo-fu4").status == "ready"         # a new email from the customer reopens it

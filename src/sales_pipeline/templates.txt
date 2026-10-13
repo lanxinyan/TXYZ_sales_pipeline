@@ -15,6 +15,10 @@
 # default; the others can be picked in the dashboard. followup_3_quote is used
 # when a quote was sent, followup_3_service otherwise. Follow-ups are sent as a
 # reply in the same thread, with your previous email quoted underneath.
+#
+# revisit_quote / revisit_service: for conversations that went quiet 30 days to 3
+# months ago. Keep the words "it's been a while": that is how Sales Desk recognises
+# the check-in afterwards (one last follow-up a week later, then No reply).
 
 === first_reply | First reply (same day) ===
 {greeting}
@@ -69,6 +73,24 @@ How are you doing? I just wanted to check if you are still interested in this se
 {greeting}
 
 This is {sender_name}. I am wondering if you are still interested in this service. If you have purchased it from another vendor or changed direction, please give us a courtesy reply so we can close this request and stop further follow-ups. If there is anything we can help with, please feel free to contact me. Thanks!
+
+{signature}
+
+=== revisit_quote | It's been a while: check in (a quote was sent) ===
+{greeting}
+
+It's been a while since we last talked{about_topic}, and I hope your research is going well. I wanted to check whether this project is still in your plans. If your timeline, budget or scope has changed, please let us know, and we will be glad to update the quote or suggest a smaller pilot to get started.
+
+Please let us know if there is anything we can help with. You can reach me at {sender_phone} or by email.
+
+{signature}
+
+=== revisit_service | It's been a while: check in (no quote yet) ===
+{greeting}
+
+It's been a while since we last talked{about_topic}, and I hope your work is going well. I wanted to check whether this is still something you are planning. If so, please let us know a few details (sample type, number of samples and your timeline), and we will prepare a quote for you right away.
+
+Please let us know if there is anything we can help with. You can reach me at {sender_phone} or by email.
 
 {signature}
 

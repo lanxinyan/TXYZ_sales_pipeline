@@ -46,11 +46,12 @@ def parse(text: str) -> dict[str, Template]:
 
 
 def load(path: str = "") -> dict[str, Template]:
+    """The built-in templates; a TEMPLATES_FILE replaces the ones it contains (new built-in
+    templates, like the check-ins, are still there if your copy is older)."""
+    out = parse(resources.files(__package__).joinpath("templates.txt").read_text(encoding="utf-8"))
     if path and Path(path).exists():
-        text = Path(path).read_text(encoding="utf-8")
-    else:
-        text = resources.files(__package__).joinpath("templates.txt").read_text(encoding="utf-8")
-    return parse(text)
+        out.update(parse(Path(path).read_text(encoding="utf-8")))
+    return out
 
 
 def followup_variants(templates: dict[str, Template], n: int, quote_sent: bool) -> list[Template]:

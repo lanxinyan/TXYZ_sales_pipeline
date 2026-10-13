@@ -22,7 +22,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from .conversation import (ACK_ONLY, CRM_REF, DECLINE, ORDER_INTENT, QUOTE_ASK, Who, display_name, first_line,
+from .conversation import (ACK_ONLY, CRM_REF, DECLINE, ORDER_INTENT, QUOTE_ASK, REVISIT_MARK, Who, display_name,
+                           first_line,
                            form_fields, forward_origin, fresh_text, owner_is_me, parse_date, quote_statement, short)
 from .models import EmailMessage, EmailThread
 from .store import Record
@@ -151,6 +152,8 @@ def read_thread(thread: EmailThread, rec: Record, s, ignored=frozenset()) -> dic
                     out["quote_way"] = {"date": at, "numbers": new_nums or nums, "pdf": pdf,
                                         "formal": bool(re.search(r"formal quot", statement, re.I))}
                     add("q", ", ".join(new_nums or nums) or "quote sent", by)
+                elif REVISIT_MARK.search(text):
+                    add("f", "revisit", by)
                 elif since_customer == 1:
                     add("f", ("first reply" if customer_emails == 1 else "answered") if seen_inbound
                         else "first email", by)

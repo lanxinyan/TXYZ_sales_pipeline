@@ -84,6 +84,12 @@ class Settings:
     first_reply_hours: int = 24      # answer a customer's first email the same day
     close_after_days: int = 14       # after the 4th follow-up, suggest closing (No reply)
     log_manual_replies: bool = True  # also record replies you send from Gmail in Zoho
+    # Conversations that went quiet 30 days to 3 months ago get an "it's been a while" check-in
+    # (Revisit tab); one last follow-up a week after it, then No reply. Older ones are left alone.
+    revisit_after_days: int = 30
+    revisit_until_days: int = 90
+    revisit_followup_days: int = 7
+    scan_limit: int = 300            # threads looked at per search (unchanged ones aren't downloaded)
 
     # Until Zoho API access is approved (and the CRM rulebook is final), Sales Desk does not
     # write customer records, tags or notes itself: it writes a Gmail feed for Cowork instead.
@@ -93,6 +99,10 @@ class Settings:
     db_path: str = "sales_pipeline.db"
     auto_push: bool = False
     scan_interval_min: int = 15
+
+    def revisit_query(self) -> str:
+        """Sent mail from the revisit window (with some margin), which the other searches may not reach."""
+        return f"in:sent older_than:{self.revisit_after_days}d newer_than:{self.revisit_until_days + 10}d"
 
     def signature(self) -> str:
         return self.email_signature.replace("{sender_name}", self.sender_name)
@@ -140,6 +150,10 @@ class Settings:
             first_reply_hours=int(env("FIRST_REPLY_HOURS") or d.first_reply_hours),
             close_after_days=int(env("CLOSE_AFTER_DAYS") or d.close_after_days),
             log_manual_replies=_bool(env("LOG_MANUAL_REPLIES"), d.log_manual_replies),
+            revisit_after_days=int(env("REVISIT_AFTER_DAYS") or d.revisit_after_days),
+            revisit_until_days=int(env("REVISIT_UNTIL_DAYS") or d.revisit_until_days),
+            revisit_followup_days=int(env("REVISIT_FOLLOWUP_DAYS") or d.revisit_followup_days),
+            scan_limit=int(env("SCAN_LIMIT") or d.scan_limit),
             zoho_direct_updates=_bool(env("ZOHO_DIRECT_UPDATES"), d.zoho_direct_updates),
             crm_feed_dir=env("CRM_FEED_DIR") or d.crm_feed_dir,
             db_path=env("DB_PATH") or d.db_path,

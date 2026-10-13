@@ -34,7 +34,9 @@ FORM_FIELDS = {
 
 QUOTE_SENT = re.compile(
     r"\b(?:our|the attached|attached|formal)\s+(?:formal\s+)?quot(?:e|ation)\b|"
-    r"\bquot(?:e|ation)\b[^.\n]{0,40}\b(?:below|attached)\b|^\s*QUOTATION\b|\bQuotation[_ ]Creative",
+    r"\bquot(?:e|ation)\b[^.\n]{0,40}\b(?:below|attached)\b|^\s*QUOTATION\b|\bQuotation[_ ]Creative|"
+    r"\b(?:find|attached|enclosed)\s+(?:is\s+|are\s+)?(?:the|our|a|my)\s+(?:formal\s+|updated\s+|revised\s+)?"
+    r"quot(?:e|ation)",
     re.I | re.M)
 # "Once we hear back, we will send a formal quote" promises a quote; it doesn't send one.
 QUOTE_PROMISE = re.compile(
@@ -59,6 +61,8 @@ ACK_ONLY = re.compile(r"^\W*(?:great|perfect|ok(?:ay)?|got it|received|noted|sou
 HOLD = re.compile(
     r"(?:稍等|等待|暂缓|先不|先别|不要|别急|hold|wait|don'?t|do not)[^\n]{0,20}(?:invoice|发票|预付|开票)|"
     r"(?:invoice|发票|预付|开票)[^\n]{0,20}(?:稍等|暂缓|先不|on hold|hold off|later)", re.I)
+# Our "it's been a while" check-in (the revisit email); the wording the templates use.
+REVISIT_MARK = re.compile(r"\b(?:it'?s|it has) been (?:a while|some time)\b", re.I)
 CRM_REF = re.compile(r"\b(Inquiry-\d{5,})\b[^\n]{0,30}?\bcrm\b\s*(\w+(?:\s*&\s*\w+)?)?", re.I)
 GREETING = re.compile(r"^\s*(Dear|Hi|Hello|Hey)\b[ ,]*([^,\n]{0,40}?)\s*[,，!]?\s*$", re.I)
 NO_REPLY_LOCALPART = re.compile(r"^(?:no-?reply|do-?not-?reply|mailer-daemon|notifications?|postmaster)\b", re.I)
@@ -224,6 +228,7 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
     last_in: datetime | None = None
     last_out: datetime | None = None
     touches = 0
+    outs: list[tuple] = []        # (time, is_revisit) for our emails since the customer last wrote
     messages = _sorted(thread.messages)
     if messages:
         conv.newest_message_id = messages[-1].id
@@ -259,6 +264,8 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                     customers.setdefault(r, None)
                 touches += 1
                 last_out = at or last_out
+                if at:
+                    outs.append((at, bool(REVISIT_MARK.search(text))))
                 cc = [r for r in recips if who.internal(r) and r != me]
                 if sender != me:
                     cc.append(sender)
@@ -297,6 +304,10 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                                           "who": name, "at": iso(at)})
 
         if inbound:
+            if not conv.replied_ever and conv.first_inbound_at is None:
+                # ... unless what they started with is a quote for us: then they are a vendor.
+                conv.customer_started = not (quote_statement(text) or
+                                             any(re.search(r"quot", a, re.I) for a in m.attachment_names))
             if event["kind"] == "customer":
                 event["who"] = inbound.get("name") or inbound["email"]
                 if QUOTE_ASK.search(text):
@@ -319,6 +330,7 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                                  "customer_cc": [r for r in recips if who.customer(r) and r != email]}
             last_in = at or last_in
             touches = 0
+            outs = []
         conv.events.append(event)
 
     conv.customer_emails = list(customers)
@@ -350,12 +362,30 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
             conv.due_at = iso(last_in + timedelta(hours=s.first_reply_hours))
     elif last_out:
         n = max(1, touches)
+        now = now or datetime.now(timezone.utc)
+        quiet = (now - last_out).total_seconds() / 86400
+        conv.quiet_days = int(quiet)
+        checkins = [at for at, is_revisit in outs if is_revisit]
         if "declined" in kinds:
             conv.stage, conv.due_at = "declined", iso(last_out)
+        elif checkins:
+            # We checked in after a quiet spell: one last follow-up a week later, then close.
+            conv.revisited_at = iso(checkins[-1])
+            if sum(1 for at, _ in outs if at >= checkins[-1]) == 1:
+                conv.stage, conv.followup_no = "awaiting_customer", len(s.followup_days)
+                conv.due_at = iso(checkins[-1] + timedelta(days=s.revisit_followup_days))
+            else:
+                conv.stage, conv.due_at = "exhausted", iso(last_out + timedelta(days=s.close_after_days))
+        elif quiet > s.revisit_until_days:
+            conv.stage = "none"           # quiet for more than 3 months: left alone
+        elif quiet >= s.revisit_after_days and (n > len(s.followup_days) or
+                                                 catch_up(n, last_out, s.followup_days, now) > n):
+            # Went quiet a month or more ago (we fell behind, or all follow-ups went unanswered).
+            conv.stage, conv.due_at = "revisit", iso(last_out + timedelta(days=s.revisit_after_days))
         elif n <= len(s.followup_days):
             conv.stage = "awaiting_customer"
             conv.due_at = iso(last_out + timedelta(days=s.followup_days[n - 1]))
-            conv.followup_no = catch_up(n, last_out, s.followup_days, now or datetime.now(timezone.utc))
+            conv.followup_no = catch_up(n, last_out, s.followup_days, now)
         else:
             conv.stage = "exhausted"
             conv.due_at = iso(last_out + timedelta(days=s.close_after_days))

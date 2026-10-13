@@ -199,6 +199,23 @@ def demo_threads() -> tuple[list[EmailThread], dict[str, Order], dict[str, list[
           "<h.berg@fjord-bio.example>\nDate: Fri, Oct 9, 2026\nSubject: Negative stain EM question\n"
           "To: <usa@creative-biostructure.com>\n\nHello, could you quote negative-stain EM for 4 protein samples? "
           "Thanks, Hanna", _ago(hours=8), s, name="US Office")], url))
+
+    # 14. A quote that went quiet 50 days ago (nobody followed up) -> Revisit: "it's been a while".
+    s = "Re: Exosome isolation quote"
+    T.append(EmailThread("demo-revisit", s, [
+        M("l.nguyen@sparrow-demo.example", [ME], "Could you quote exosome isolation from 12 plasma samples?",
+          _ago(days=52), "Exosome isolation quote", name="Linh Nguyen"),
+        M(ME, ["l.nguyen@sparrow-demo.example"], "Dear Dr. Nguyen,\n\nBelow is our quote CBSXY08232601 for "
+          "exosome isolation from 12 plasma samples: $4,800, 3-4 weeks.\n\nBest regards,\nTony",
+          _ago(days=50), s, name="Tony")], url))
+
+    # 15. Answered 40 days ago, no quote yet, then silence -> Revisit (asks for the details again).
+    s = "Re: Cryo-EM for a membrane protein"
+    T.append(EmailThread("demo-revisit-noquote", s, [
+        M("a.okoro@meadow-demo.example", [ME], "Do you do cryo-EM on membrane proteins in nanodiscs?",
+          _ago(days=41), "Cryo-EM for a membrane protein", name="Ada Okoro"),
+        M(ME, ["a.okoro@meadow-demo.example"], "Dear Ada,\n\nYes, we do. Could you share the protein size "
+          "and how many constructs?\n\nBest regards,\nTony", _ago(days=40), s, name="Tony")], url))
     return T, answers, late
 
 

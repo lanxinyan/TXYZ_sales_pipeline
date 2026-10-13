@@ -41,8 +41,9 @@ def classify(thread: EmailThread, order: Order, conv: Conversation | None, s: Se
     if not conv or not conv.customer_emails:
         return "other"
     ours = re.search(s.order_code_regex, thread.subject + "\n" + "\n".join(fresh_text(m.body) for m in thread.messages))
+    # A customer who wrote to us and got an answer is a sales conversation, quote or not.
     if (conv.quote_sent or conv.inquiry_forward or conv.asked_for_quote or ours
-            or INQUIRY_SUBJECT.search(thread.subject)):
+            or (conv.customer_started and conv.replied_ever) or INQUIRY_SUBJECT.search(thread.subject)):
         return "quote_request"
     return "other"
 
@@ -102,6 +103,9 @@ def prioritize(kind: str, order: Order, issues: list[str], conv: Conversation | 
         elif conv.stage == "exhausted":
             score = 25
             why.append(f"no answer after {total_followups} follow-ups")
+        elif conv.stage == "revisit":
+            score = 30 + (10 if conv.quote_sent else 0) + min(10, conv.quiet_days // 9)
+            why.append(f"quiet {conv.quiet_days}d" + (" · quote sent" if conv.quote_sent else ""))
         if order.total:
             score += min(15, int(order.total / 2000))
     return score, why
@@ -124,6 +128,8 @@ def action_label(kind: str, conv: Conversation | None, s: Settings) -> str:
         return "Customer declined?"
     if conv.stage == "exhausted":
         return "No answer: close?"
+    if conv.stage == "revisit":
+        return "It's been a while"
     return ""
 
 
@@ -138,10 +144,18 @@ def _age(hours: float) -> str:
 
 # ---------- the plan ----------
 
+def topic_phrase(topic: str) -> str:
+    """An email subject as words for a sentence: "Request for Quotation - HDX-MS epitope mapping"
+    -> "HDX-MS epitope mapping", "Exosome isolation quote" -> "exosome isolation"."""
+    t = re.sub(r"^\s*(?:request for quot\w*|rfq|quote request|inquiry|enquiry)\s*[-:–]\s*", "", topic or "", flags=re.I)
+    t = re.sub(r"\s+(?:quote|quotation|inquiry|enquiry|request|proposal)s?\s*$", "", t, flags=re.I)
+    return " ".join(w.lower() if re.fullmatch(r"[A-Z][a-z]+", w) else w for w in t.split())
+
+
 def values(s: Settings, order: Order, conv: Conversation | None) -> dict:
     name = (conv.customer_name if conv else None) or order.customer.contact_name or ""
     first = name.split()[0].strip(",").title() if name.strip() else ""
-    topic = (conv.topic if conv else None) or ""
+    topic = topic_phrase((conv.topic if conv else None) or "")
     total = f"${order.total:,.2f}" if order.total else ""
     items = "; ".join(f"{i.product_name} x{i.quantity:g}" for i in order.items) or topic or "your order"
     email = order.customer.email or (conv.customer_emails[0] if conv and conv.customer_emails else "")
@@ -298,6 +312,20 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                        + (f"Skipped ahead to follow-up {n} because of the time that has passed. "
                           if n > max(conv.touches, 1) else "")
                        + "Your previous email is quoted underneath.",
+                draft=_draft(variants[0], vals, customers_only(out.get("to"), s) or [email],
+                             customers_only(out.get("customer_cc", []), s),
+                             _re(out.get("subject") or subject), in_reply_to=out.get("rfc_id", ""),
+                             quote=_quote(out), variants=variants)))
+        elif conv.stage == "revisit":
+            keys = ["revisit_quote", "revisit_service"] if conv.quote_sent else ["revisit_service", "revisit_quote"]
+            variants = [T[k] for k in keys if k in T]
+            last_by = "your" if out.get("sender") == s.user_email else f"{out.get('sender_name')}'s"
+            steps.append(dict(
+                id="revisit", gated=True, enabled=True, crm_log=True,
+                title=f"Check in: it's been a while ({conv.quiet_days} days)",
+                detail=f"Quiet since {last_by} email of {short(out.get('date'))}"
+                       + (" (a quote was sent)" if conv.quote_sent else " (no quote yet)")
+                       + ". If there's no answer, one last follow-up a week later, then No reply.",
                 draft=_draft(variants[0], vals, customers_only(out.get("to"), s) or [email],
                              customers_only(out.get("customer_cc", []), s),
                              _re(out.get("subject") or subject), in_reply_to=out.get("rfc_id", ""),

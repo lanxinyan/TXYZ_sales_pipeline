@@ -26,6 +26,7 @@ log = logging.getLogger(__name__)
 VIEWS = {
     "todo": ["needs_review", "ready", "failed", "approved"],
     "upcoming": ["scheduled"],
+    "revisit": ["revisit"],         # quiet 30 days to 3 months: "it's been a while"
     "send": ["awaiting_send"],      # drafts waiting in Gmail for you to send
     "done": ["done", "pushed"],
     "skipped": ["skipped"],

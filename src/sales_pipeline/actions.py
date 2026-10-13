@@ -220,6 +220,7 @@ class Executor:
     def skip(self, thread_id: str) -> Record:
         self._get(thread_id)
         self.store.update(thread_id, status="skipped")
+        self.store.set_decision(thread_id, "skipped", issues=["skipped by you"])
         self.store.log(thread_id, "Skipped")
         if self.gmail:
             from .gmail_source import LABEL_SKIPPED
@@ -230,6 +231,7 @@ class Executor:
     def snooze(self, thread_id: str, days: float, why: str = "") -> Record:
         due = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(timespec="seconds")
         self.store.update(thread_id, status="scheduled", due_at=due)
+        self.store.set_decision(thread_id, "scheduled", due_at=due, issues=self._get(thread_id).issues)
         self.store.log(thread_id, f"Snoozed until {short(due)}" + (f" ({why})" if why else ""))
         return self._get(thread_id)
 
@@ -257,6 +259,7 @@ class Executor:
                 _quietly(self.gmail.delete_draft, st["draft_id"])
                 st["state"] = "skipped"
         self.store.update(thread_id, status="done", plan=rec.plan, issues=[f"closed: {tag}"])
+        self.store.set_decision(thread_id, "done", issues=[f"closed: {tag}"])
         self.store.log(thread_id, f"Tagged {tag} " + ("in Zoho" if self.crm else "(for Cowork, in the next Gmail feed)")
                        + "; follow-ups stopped")
         if outcome == "ordered":
@@ -442,6 +445,9 @@ class Executor:
                   "ready" if unsent else "done")
         rec = self._get(thread_id)
         self.store.update(thread_id, plan=plan, status=status, zoho_id=rec.zoho_id)
+        if status == "done" and rec.kind == "quote_request":
+            closed = [x["result"] for x in plan if x["id"].startswith("tag_") and x.get("state") == "done"]
+            self.store.set_decision(thread_id, "done", issues=[f"closed: {c}" for c in closed] or None)
         return self._get(thread_id)
 
 

@@ -128,6 +128,9 @@ class Conversation(BaseModel):
     # reply_needed | awaiting_customer | declined | exhausted | none
     stage: str = "none"
     followup_no: int = 0          # the follow-up that is next (1-4)
+    quiet_days: int = 0           # days since the last email either way
+    customer_started: bool = False   # the customer wrote first (a vendor you contacted is the other way round)
+    revisited_at: Optional[str] = None   # our "it's been a while" check-in, if sent since they last wrote
     due_at: Optional[str] = None
     signals: list[dict] = Field(default_factory=list)   # {kind, text}
     events: list[dict] = Field(default_factory=list)    # timeline {at, who, kind, text}

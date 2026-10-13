@@ -182,6 +182,21 @@ class Store:
     def set_meta(self, key: str, value: str) -> None:
         self._write("INSERT OR REPLACE INTO meta VALUES (?,?)", (key, value))
 
+    def decision(self, thread_id: str) -> dict | None:
+        v = self.meta(f"decision:{thread_id}")
+        return json.loads(v) if v else None
+
+    def set_decision(self, thread_id: str, status: str, due_at: str | None = None,
+                     issues: list[str] | None = None) -> None:
+        """Remember a decision you made, for as long as the thread has no new email."""
+        rec = self.get(thread_id)
+        self.set_meta(f"decision:{thread_id}", json.dumps(
+            {"status": status, "due_at": due_at, "issues": issues, "count": rec.message_count if rec else None},
+            ensure_ascii=False))
+
+    def clear_decision(self, thread_id: str) -> None:
+        self._write("DELETE FROM meta WHERE key=?", (f"decision:{thread_id}",))
+
     def seen_history(self, thread_id: str) -> str | None:
         rows = self._all("SELECT history_id FROM seen WHERE thread_id=?", (thread_id,))
         return rows[0]["history_id"] if rows else None

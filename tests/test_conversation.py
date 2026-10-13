@@ -63,7 +63,7 @@ def test_followups_count_colleagues_and_follow_the_1_2_7_30_cadence():
         assert (c.stage, c.followup_no, c.touches) == ("awaiting_customer", n, n)
         assert parse_date(c.due_at) - parse_date(msgs[-1].date) == timedelta(days=gap)
         msgs.append(M(senders[i], [CUST], f"follow-up {n}", day(3 + i), cc=[ME]))
-    c = analyze(EmailThread("t", "Re: Quote", msgs), S, ME)
+    c = analyze(EmailThread("t", "Re: Quote", msgs), S, ME, now=parse_date(msgs[-1].date))
     assert c.stage == "exhausted" and c.touches == 5
     assert parse_date(c.due_at) - parse_date(msgs[-1].date) == timedelta(days=S.close_after_days)
     assert c.quote_sent and c.last_outbound["sender"] == YANI
@@ -193,5 +193,50 @@ def test_a_quote_that_went_quiet_long_ago_skips_ahead_to_a_firmer_follow_up():
     assert [catch_up(1, sent, days, at(d)) for d in (1, 2.9, 3, 9, 10, 39, 40, 400)] == [1, 1, 2, 2, 3, 3, 4, 4]
     assert catch_up(3, sent, days, at(10)) == 3      # after FU2: FU3 is due at +7, FU4 not before +37
     t = EmailThread("t", "Re: Quote", [M(ME, [CUST], "Below is our quote CBSXY08012601.", "2026-08-01T12:00:00+00:00")])
-    c = analyze(t, S, ME, now=at(49))
-    assert (c.stage, c.touches, c.followup_no) == ("awaiting_customer", 1, 4)
+    c = analyze(t, S, ME, now=at(25))
+    assert (c.stage, c.touches, c.followup_no) == ("awaiting_customer", 1, 3)
+    c = analyze(t, S, ME, now=at(49))                # a month or more: an "it's been a while" check-in instead
+    assert (c.stage, c.quiet_days) == ("revisit", 48)     # the quote went out at noon
+
+
+def test_quiet_for_a_month_to_three_months_gets_a_check_in():
+    from datetime import datetime, timezone
+
+    sent = datetime(2026, 7, 1, tzinfo=timezone.utc)
+    at = lambda d: (sent + timedelta(days=d)).isoformat()          # noqa: E731
+    quote = [M(CUST, [ME], "Could you quote this?", at(-1)), M(ME, [CUST], "Below is our quote CBSXY07012601.", at(0))]
+    no_quote = [M(CUST, [ME], "Do you do TEM?", at(-1)), M(ME, [CUST], "Yes, we can help. How many samples?", at(0))]
+    for msgs, quoted in ((quote, True), (no_quote, False)):
+        c = analyze(EmailThread("t", "Re: Quote", list(msgs)), S, ME, now=parse_date(at(45)))
+        assert (c.stage, c.quote_sent) == ("revisit", quoted)
+    assert analyze(EmailThread("t", "Re", quote), S, ME, now=parse_date(at(95))).stage == "none"   # > 3 months
+
+    # Natural cadence: follow-up 4 comes a month after follow-up 3 and keeps its own wording.
+    fu = quote + [M(ME, [CUST], f"follow-up {i}", at(d)) for i, d in ((1, 1), (2, 3), (3, 10))]
+    c = analyze(EmailThread("t", "Re", fu), S, ME, now=parse_date(at(41)))
+    assert (c.stage, c.followup_no) == ("awaiting_customer", 4)
+
+    # After the check-in: one last follow-up a week later, then close.
+    checked = quote + [M(ME, [CUST], "Hi Pat,\n\nIt's been a while since we last talked.", at(45))]
+    c = analyze(EmailThread("t", "Re", checked), S, ME, now=parse_date(at(46)))
+    assert (c.stage, c.followup_no) == ("awaiting_customer", 4)
+    assert parse_date(c.due_at) == parse_date(at(52))
+    closed = checked + [M(ME, [CUST], "follow-up", at(52))]
+    assert analyze(EmailThread("t", "Re", closed), S, ME, now=parse_date(at(53))).stage == "exhausted"
+    # The customer answering starts things over.
+    c = analyze(EmailThread("t", "Re", checked + [M(CUST, [ME], "Still interested!", at(47))]), S, ME,
+                now=parse_date(at(47)))
+    assert c.stage == "reply_needed"
+
+
+def test_a_customer_we_answered_is_a_sales_conversation_without_a_quote_but_a_vendor_is_not():
+    from sales_pipeline.models import Order
+    from sales_pipeline.tasks import classify
+
+    asked = EmailThread("t", "Cryo-EM", [M(CUST, [ME], "Do you do cryo-EM on membrane proteins?", day(1)),
+                                         M(ME, [CUST], "Yes. How many constructs?", day(2))])
+    assert classify(asked, Order(is_sales_order=False), analyze(asked, S, ME), S) == "quote_request"
+    vendor = EmailThread("t", "Your quotation", [
+        M("rep@vendor.example", [ME], "Please find attached the quotation you requested.", day(1)),
+        M(ME, ["rep@vendor.example"], "Thanks, we will review it.", day(2))])
+    assert classify(vendor, Order(is_sales_order=False), analyze(vendor, S, ME), S) == "other"

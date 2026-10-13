@@ -121,7 +121,7 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 PLAN_VERSION = "2"
 # Bump when the way threads are read changes: every thread is then read again once
 # (e.g. version 2: "we will send a formal quote" is a promise, not a quote sent).
-READ_VERSION = "2"
+READ_VERSION = "3"   # 3: conversations quiet 30 days to 3 months are revisited
 
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gmail=None, zoho: ZohoCRM | None = None,
@@ -174,6 +174,14 @@ class Pipeline:
             if conv.customer_emails and not owner_is_me(conv):
                 issues.append("handled by colleagues (you are only in copy)")
 
+        # What you decided (closed, skipped, snoozed) stands until the thread gets a new email.
+        decided = self.store.decision(thread.id)
+        if decided:
+            if decided.get("count") == len(thread.messages):
+                status, due_at = decided["status"], decided.get("due_at") or due_at
+                issues = decided.get("issues") or issues
+            else:
+                self.store.clear_decision(thread.id)
         self._save(thread, kind, order, conv, status, issues, due_at)
         if kind == "quote_request":
             self._log_manual_replies(thread, conv)
@@ -200,6 +208,8 @@ class Pipeline:
                 return "done", None, [f"closed in Zoho: {closed}"]
             if closed:
                 return "ready", conv.due_at, [f"customer wrote again but is tagged {closed} in Zoho"]
+        if conv.stage == "revisit":
+            return "revisit", conv.due_at, []
         due = parse_date(conv.due_at)
         if conv.stage in ("awaiting_customer", "exhausted") and due and due > datetime.now(timezone.utc):
             return "scheduled", conv.due_at, []
@@ -279,14 +289,16 @@ class Pipeline:
 
     # ---------- keeping the list current ----------
 
-    def scan(self, query: str | None = None, limit: int = 50, rescan: bool = False, lock=None) -> dict[str, int]:
+    def scan(self, query: str | None = None, limit: int | None = None, rescan: bool = False,
+             lock=None) -> dict[str, int]:
         """Re-read new/changed threads. `lock` (the dashboard's) is held one thread at a
         time, so your clicks are never kept waiting for the whole scan."""
         from .gmail_source import rate_limited
 
         lock = lock or nullcontext()
         counts: dict[str, int] = {}
-        queries = [query] if query else [self.s.gmail_query, self.s.followup_query]
+        limit = limit or self.s.scan_limit
+        queries = [query] if query else [self.s.gmail_query, self.s.followup_query, self.s.revisit_query()]
         seen: list[str] = []
         history = getattr(self.gmail, "history", {})
         # Who counts as "us" (INTERNAL_DOMAINS ...). When that changes, every thread is read again once.

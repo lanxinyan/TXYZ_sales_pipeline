@@ -30,6 +30,13 @@ so Yani's follow-ups count too.
 | Still no answer | **Close**: tag **No reply** | 14 days later |
 | Customer says they're going elsewhere ("more expensive… our core facility") | **Thank-you reply + tag 不买了**, no more follow-ups | right away |
 | "Great, thanks!" | nothing to do | |
+| Went quiet 30 days – 3 months ago (quote or not; nobody kept following up, or all follow-ups went unanswered) | **Revisit**: *it's been a while… please let us know* (asks to update the quote, or for details to prepare one) | in the **Revisit** tab |
+| Still no answer after the check-in | **Last follow-up** (the final one), then **No reply** | a week later, then 14 days |
+| Quiet for more than 3 months | left alone | |
+
+A customer who wrote to you and got an answer counts as a sales conversation even without a quote or an
+inquiry form (a vendor who sends you a quote doesn't). The natural 4th follow-up (a month after the 3rd)
+keeps its own wording; the check-in is for conversations that simply went quiet.
 
 Each follow-up is firmer than the one before. Each is a reply in the same thread, with your previous
 email quoted underneath. Follow-ups that aren't due yet wait in **Upcoming** and move to **To decide**
@@ -147,7 +154,8 @@ Then **Feed for Cowork** (top right of the page) writes `gmail-feed-<date>.md` t
   不买了. To start smaller, set `FOLLOWUP_QUERY=in:sent newer_than:14d` in `.env`.
 - The first feed for Cowork covers the last 30 days (`sales-pipeline crm-feed --days 60` for more).
 
-**Optional settings** (`.env`): `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template),
+**Optional settings** (`.env`): `REVISIT_AFTER_DAYS` / `REVISIT_UNTIL_DAYS` (default 30 / 90),
+`REVISIT_FOLLOWUP_DAYS` (7), `SCAN_LIMIT` (threads per search, default 300), `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template),
 `EMAIL_SIGNATURE`. Add `ANTHROPIC_API_KEY` to let Claude read order emails and their PDF quotes/POs. Without
 it, order forms are read by the built-in parser, and follow-ups work the same.
 
@@ -189,6 +197,10 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
   - Edit any email before approving. Follow-ups have a *Wording* picker for the alternatives. After that,
     edit in Gmail.
 - **Upcoming**: scheduled follow-ups with their dates. You can make one's draft early.
+- **Revisit**: customers who went quiet 30 days to 3 months ago, quote-sent ones first. Work through them at
+  your pace: the check-in becomes a Gmail draft like any other email.
+- What you decide (an outcome button, Skip, a snooze) stays decided until the customer or a colleague writes
+  in that thread again.
 - **In Gmail drafts**: drafts waiting for you to send. **Open in Gmail** opens it; **I sent it: check Gmail**
   picks it up right away (otherwise the next scan does). Sending it schedules the next follow-up. If you
   delete the draft in Gmail, the item comes back to *To decide*.

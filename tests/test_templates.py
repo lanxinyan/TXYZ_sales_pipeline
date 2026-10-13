@@ -30,7 +30,7 @@ def test_custom_template_file(tmp_path):
     f = tmp_path / "t.txt"
     f.write_text("# my wording\n=== followup_1 | Short ===\n{greeting}\n\nAny news?\n\n{signature}\n", encoding="utf-8")
     T = load(str(f))
-    assert list(T) == ["followup_1"]
+    assert T["followup_1"].label == "Short" and "revisit_quote" in T     # built-ins it lacks are kept
     assert render(T["followup_1"], greeting="Hello,", signature="Tony") == "Hello,\n\nAny news?\n\nTony\n"
 
 
@@ -38,3 +38,11 @@ def test_previous_email_is_quoted_gmail_style():
     q = quote_block({"sender": "Tony <t@x.com>", "date_label": "Thu, Oct 8", "body": "Line 1\n\nLine 2"})
     assert q == "\n\nOn Thu, Oct 8, Tony <t@x.com> wrote:\n> Line 1\n>\n> Line 2\n"
     assert quote_block(None) == ""
+
+
+def test_subjects_read_naturally_in_a_sentence():
+    from sales_pipeline.tasks import topic_phrase
+
+    assert topic_phrase("Exosome isolation quote") == "exosome isolation"
+    assert topic_phrase("Request for Quotation - HDX-MS epitope mapping") == "HDX-MS epitope mapping"
+    assert topic_phrase("Cryo-EM for a membrane protein") == "Cryo-EM for a membrane protein"

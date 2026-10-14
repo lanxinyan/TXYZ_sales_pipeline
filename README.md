@@ -34,6 +34,10 @@ so Yani's follow-ups count too.
 | Still no answer after the check-in | **Last follow-up** (the final one), then **No reply** | a week later, then 14 days |
 | Quiet for more than 3 months | left alone | |
 
+When a colleague asks you by name in an internal email to quote or answer ("张博士报吧", "Tony, can you
+quote this?"), the item moves up and shows their request (names in `MY_NAMES`). Website-form inquiries of the
+last 3 months are always looked at, also ones nobody has answered yet.
+
 A customer who wrote to you and got an answer counts as a sales conversation even without a quote or an
 inquiry form (a vendor who sends you a quote doesn't). The natural 4th follow-up (a month after the 3rd)
 keeps its own wording; the check-in is for conversations that simply went quiet.

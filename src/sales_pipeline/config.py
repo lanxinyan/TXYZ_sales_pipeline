@@ -74,6 +74,8 @@ class Settings:
     # Who the emails come from
     sender_name: str = "Tony"
     sender_phone: str = "1-631-559-9269"
+    # How colleagues address you in internal emails ("张博士报吧"): such a request moves the item up.
+    my_names: list[str] = field(default_factory=lambda: ["张博士", "张新研", "新研", "tony", "dr. zhang", "xinyan"])
     email_signature: str = "Best regards,\n\n{sender_name}"
     accounting_email: str = "accounting@creative-biomart.com"
     templates_file: str = ""
@@ -99,6 +101,11 @@ class Settings:
     db_path: str = "sales_pipeline.db"
     auto_push: bool = False
     scan_interval_min: int = 15
+
+    def inquiry_query(self) -> str:
+        """Website-form inquiries of the last 3 months, also ones nobody has answered yet."""
+        return (f'(from:inquiry@creative-biostructure.com OR from:cd-sciences.info OR '
+                f'subject:("Creative Biostructure" ID)) newer_than:{self.revisit_until_days}d')
 
     def revisit_query(self) -> str:
         """Sent mail from the revisit window (with some margin), which the other searches may not reach."""
@@ -142,6 +149,7 @@ class Settings:
             zoho_tag_file=env("ZOHO_TAG_FILE") or d.zoho_tag_file,
             sender_name=env("SENDER_NAME") or d.sender_name,
             sender_phone=env("SENDER_PHONE") if env("SENDER_PHONE") is not None else d.sender_phone,
+            my_names=_list(env("MY_NAMES"), d.my_names),
             email_signature=(env("EMAIL_SIGNATURE") or d.email_signature).replace("\\n", "\n"),
             accounting_email=(env("ACCOUNTING_EMAIL") if env("ACCOUNTING_EMAIL") is not None
                               else d.accounting_email).lower(),

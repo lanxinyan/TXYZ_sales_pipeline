@@ -69,7 +69,7 @@ section h3{margin:0 0 10px;font-size:12.5px;text-transform:uppercase;letter-spac
 .tl .txt{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .k{font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:4px;margin-right:6px;text-transform:uppercase;letter-spacing:.03em}
 .k.customer,.k.forwarded_inquiry{background:var(--low-bg);color:var(--low)} .k.you_replied{background:var(--sel);color:var(--accent)}
-.k.colleague_replied,.k.crm,.k.accounting{background:var(--col-bg);color:var(--accent)} .k.hold{background:var(--med-bg);color:var(--med)}
+.k.colleague_replied,.k.crm,.k.accounting{background:var(--col-bg);color:var(--accent)} .k.hold,.k.nudge{background:var(--med-bg);color:var(--med)}
 .k.note{background:var(--hover);color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px 14px}
 label.f{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
@@ -139,7 +139,7 @@ dialog .acts{justify-content:flex-end}
   <div class="acts" style="margin-top:14px"><button class="btn" id="feed-all" title="Write a feed with everything from the last 30 days, including what earlier feeds already had">Write again with everything</button><button class="btn primary" id="feed-ok">OK</button></div></dialog>
 <script>
 const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["revisit","Revisit"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
-const KIND={customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
+const KIND={nudge:"Asks you",customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
 let view="todo", tasks=[], counts={}, sel=0, info={tags:{}};
 const deciding=()=>view==="todo"||view==="revisit";   // views where you approve items
 const $=s=>document.querySelector(s);

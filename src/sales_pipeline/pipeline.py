@@ -121,7 +121,7 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 PLAN_VERSION = "2"
 # Bump when the way threads are read changes: every thread is then read again once
 # (e.g. version 2: "we will send a formal quote" is a promise, not a quote sent).
-READ_VERSION = "3"   # 3: conversations quiet 30 days to 3 months are revisited
+READ_VERSION = "4"   # 3: quiet 30 days-3 months revisited; 4: second website-form layout, colleague nudges
 
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gmail=None, zoho: ZohoCRM | None = None,
@@ -298,7 +298,8 @@ class Pipeline:
         lock = lock or nullcontext()
         counts: dict[str, int] = {}
         limit = limit or self.s.scan_limit
-        queries = [query] if query else [self.s.gmail_query, self.s.followup_query, self.s.revisit_query()]
+        queries = [query] if query else [self.s.gmail_query, self.s.followup_query, self.s.inquiry_query(),
+                                         self.s.revisit_query()]
         seen: list[str] = []
         history = getattr(self.gmail, "history", {})
         # Who counts as "us" (INTERNAL_DOMAINS ...). When that changes, every thread is read again once.

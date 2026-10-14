@@ -129,6 +129,7 @@ class Conversation(BaseModel):
     stage: str = "none"
     followup_no: int = 0          # the follow-up that is next (1-4)
     quiet_days: int = 0           # days since the last email either way
+    nudge: Optional[dict] = None     # a colleague asked you to quote/answer: {who, at, text}
     customer_started: bool = False   # the customer wrote first (a vendor you contacted is the other way round)
     revisited_at: Optional[str] = None   # our "it's been a while" check-in, if sent since they last wrote
     due_at: Optional[str] = None

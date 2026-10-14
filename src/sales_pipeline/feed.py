@@ -129,7 +129,7 @@ def read_thread(thread: EmailThread, rec: Record, s, ignored=frozenset()) -> dic
                     customer_text = origin.get("text") or ""
                     excerpt = first_line(customer_text, 180)
                     out["channel"] = out["channel"] or (
-                        "website form, forwarded by " + display_name(m) if "Inquiry Information" in m.body
+                        "website form, forwarded by " + display_name(m) if re.search(r"Inquiry (?:Information|Content)", m.body)
                         else "forwarded by " + display_name(m))
                 for r in [sender, *recips]:
                     if who.internal(r) and r != me and r not in out["internal_people"]:

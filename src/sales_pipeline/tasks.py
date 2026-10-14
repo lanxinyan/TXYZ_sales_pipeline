@@ -106,6 +106,9 @@ def prioritize(kind: str, order: Order, issues: list[str], conv: Conversation | 
         elif conv.stage == "revisit":
             score = 30 + (10 if conv.quote_sent else 0) + min(10, conv.quiet_days // 9)
             why.append(f"quiet {conv.quiet_days}d" + (" · quote sent" if conv.quote_sent else ""))
+        if conv.nudge:
+            score += 20
+            why.insert(0, f"{conv.nudge['who']} asked you {short(conv.nudge['at'])}: {conv.nudge['text']}")
         if order.total:
             score += min(15, int(order.total / 2000))
     return score, why

@@ -27,9 +27,11 @@ QUOTE_CUTS = [
     re.compile(r"^(?:发件人|寄件者)[:：]", re.M),                                # Chinese clients
     re.compile(r"^Original:\s*$", re.M),
 ]
+# Website form labels (both layouts: "First Name *robin*" and "First Name:\n\nrobin\n-----").
 FORM_FIELDS = {
-    "first_name": "First Name", "last_name": "Last Name", "email": "Email",
-    "company": "Company/Institution", "phone": "Phone Number", "topic": "Topic",
+    "first_name": r"First Name", "last_name": r"Last Name", "email": r"E-?mail",
+    "company": r"Company(?:/| )Institution|Company|Institution", "phone": r"Phone Number",
+    "topic": r"Topic|Service & Products of Interested", "description": r"(?:Project )?Description",
 }
 
 QUOTE_SENT = re.compile(
@@ -63,6 +65,8 @@ HOLD = re.compile(
     r"(?:invoice|发票|预付|开票)[^\n]{0,20}(?:稍等|暂缓|先不|on hold|hold off|later)", re.I)
 # Our "it's been a while" check-in (the revisit email); the wording the templates use.
 REVISIT_MARK = re.compile(r"\b(?:it'?s|it has) been (?:a while|some time)\b", re.I)
+# A colleague asking you to act: "张博士报吧", "这个没报 张博士有空报么", "Tony, can you quote this?"
+ASK_TO_ACT = re.compile(r"报|回复|回一下|跟进|quote|reply|follow up|take (?:a look|care)|看下|看一下", re.I)
 CRM_REF = re.compile(r"\b(Inquiry-\d{5,})\b[^\n]{0,30}?\bcrm\b\s*(\w+(?:\s*&\s*\w+)?)?", re.I)
 GREETING = re.compile(r"^\s*(Dear|Hi|Hello|Hey)\b[ ,]*([^,\n]{0,40}?)\s*[,，!]?\s*$", re.I)
 NO_REPLY_LOCALPART = re.compile(r"^(?:no-?reply|do-?not-?reply|mailer-daemon|notifications?|postmaster)\b", re.I)
@@ -138,12 +142,18 @@ def quote_sent_in(text: str, attachment_names: list[str], code_regex: str) -> bo
 
 
 def form_fields(body: str) -> dict:
-    """Website inquiry form ("First Name *robin*", "Email *x@y.edu*", ...)."""
+    """Website inquiry form. Two layouts are in use:
+    "First Name *robin*" on one line, or "First Name:" with the value below it and a line of dashes
+    after (the label may follow other text on its line, e.g. "Contact Information First Name:")."""
     out = {}
     for key, label in FORM_FIELDS.items():
-        m = re.search(rf"^\s*{re.escape(label)}\s*\*(.+?)\*\s*$", body, re.M)
+        m = (re.search(rf"^\s*(?:{label})\s*\*(.+?)\*\s*$", body, re.M | re.I | re.S if key == "description"
+                       else re.M | re.I) or
+             re.search(rf"(?:^|\s)(?:{label})\s*:[ \t]*\n\s*(.+?)\s*(?:\n\s*-{{5,}}|\Z)", body, re.I | re.S))
         if m:
             value = m.group(1).strip()
+            if key != "description":
+                value = value.splitlines()[0].strip() if value else ""
             if key == "email":
                 e = EMAIL.search(value)
                 value = e.group(0).lower() if e else ""
@@ -189,7 +199,9 @@ def display_name(m: EmailMessage) -> str:
 
 def clean_topic(subject: str) -> str:
     s = re.sub(r"^\s*((re|fwd?|fw|回覆|答复|转发)\s*[:：]\s*)+", "", subject, flags=re.I)
-    s = re.sub(r"\s*-\s*Creative Biostructure\s*\(ID:.*$", "", s)
+    s = re.sub(r"\s*-\s*Creative Biostructure\s*\(ID:.*$", "", s)      # "Topic - Creative Biostructure (ID: ...)"
+    s = re.sub(r"^\s*Creative Biostructure\s*-\s*", "", s)               # "Creative Biostructure - Topic (ID: ...)"
+    s = re.sub(r"\s*\(ID:[^)]*\)?\s*$", "", s)
     return s.strip()
 
 
@@ -297,6 +309,10 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                 elif sender != me and HOLD.search(text):
                     event["kind"] = "hold"
                     event["text"] = sentence_with(text, HOLD) or event["text"]
+                elif (sender != me and me in recips and ASK_TO_ACT.search(text)
+                      and any(n and n.lower() in text.lower() for n in s.my_names)):
+                    event["kind"] = "nudge"
+                    conv.nudge = {"who": name, "at": iso(at), "text": first_line(text, 80)}
                 ref = CRM_REF.search(text)
                 if ref:
                     event["kind"] = "crm"
@@ -333,6 +349,8 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
             outs = []
         conv.events.append(event)
 
+    if conv.nudge and last_out and parse_date(conv.nudge["at"]) and parse_date(conv.nudge["at"]) < last_out:
+        conv.nudge = None              # already acted on: someone wrote to the customer after it
     conv.customer_emails = list(customers)
     conv.customer_name = conv.customer_name or next((n for n in customers.values() if n), None)
     conv.touches = touches

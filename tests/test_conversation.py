@@ -240,3 +240,73 @@ def test_a_customer_we_answered_is_a_sales_conversation_without_a_quote_but_a_ve
         M("rep@vendor.example", [ME], "Please find attached the quotation you requested.", day(1)),
         M(ME, ["rep@vendor.example"], "Thanks, we will review it.", day(2))])
     assert classify(vendor, Order(is_sales_order=False), analyze(vendor, S, ME), S) == "other"
+
+
+FORM_B = """---------- Forwarded message ---------
+From: <admin@cd-sciences.info>
+Date: Wed, Sep 9, 2026 at 8:54 AM
+Subject: Creative Biostructure - Cryo-Electron Microscopy (Cryo-EM)
+Services (ID: BS01-M-26090900001)
+To: <inquiry@creative-biostructure.com>
+
+Inquiry Content[IP: 10.0.0.1] ( United States, Acton )
+Cryo-Electron Microscopy (Cryo-EM) Services
+Contact Information First Name:
+
+Kim
+------------------------------
+Last Name:
+
+Rowe
+------------------------------
+Phone number:
+
+5550100 <(555)%20010-0100>
+------------------------------
+Email:
+
+kim.rowe@neuro-demo.example
+------------------------------
+Service & Products of Interested:
+
+Cryo-Electron Microscopy (Cryo-EM) Services
+------------------------------
+Company Institution:
+
+Neuro Demo Therapeutics
+------------------------------
+Project Description:
+
+We are looking into the feasibility, timeline, and cost to determine one of
+our antibody's epitope on its target antigen.
+------------------------------"""
+
+
+def test_the_second_website_form_layout_and_a_colleague_asking_you_to_quote():
+    from sales_pipeline.conversation import form_fields
+    from sales_pipeline.tasks import prioritize, classify
+    from sales_pipeline.models import Order
+
+    f = form_fields(FORM_B)
+    assert f == {"first_name": "Kim", "last_name": "Rowe", "email": "kim.rowe@neuro-demo.example",
+                 "company": "Neuro Demo Therapeutics", "phone": "5550100",
+                 "topic": "Cryo-Electron Microscopy (Cryo-EM) Services",
+                 "description": "We are looking into the feasibility, timeline, and cost to determine one of\n"
+                                "our antibody's epitope on its target antigen."}
+    usa, inq = "usa@creative-biostructure.com", "inquiry@creative-biostructure.com"
+    s = "Fwd: Creative Biostructure - Cryo-Electron Microscopy (Cryo-EM) Services (ID: BS01-M-26090900001)"
+    t = EmailThread("t", s, [
+        M(inq, [ME, YANI], FORM_B, "2026-09-09T13:49:58+00:00", subject=s),
+        M(YANI, [usa], "Inquiry-0024001 crm updated & converted", "2026-09-10T02:00:00+00:00", cc=[ME], subject=s),
+        M(usa, [YANI], "这是现有的逻辑", "2026-09-10T02:59:00+00:00", cc=[ME], subject=s),
+        M(YANI, [usa], "张博士报吧", "2026-09-10T03:53:00+00:00", cc=[ME], subject=s, name="Yani Zhao"),
+        M(YANI, [usa], "这个没报 张博士有空报么", "2026-10-14T02:05:42+00:00", cc=[ME], subject=s, name="Yani Zhao")])
+    c = analyze(t, S, ME, now=parse_date("2026-10-14T12:00:00+00:00"))
+    assert c.customer_emails == ["kim.rowe@neuro-demo.example"] and c.company == "Neuro Demo Therapeutics"
+    assert c.topic == "Cryo-Electron Microscopy (Cryo-EM) Services" and c.stage == "reply_needed"
+    assert c.last_inbound_to_me and c.crm_refs[0]["ref"] == "Inquiry-0024001"
+    assert classify(t, Order(is_sales_order=False), c, S) == "quote_request"
+    assert c.nudge["who"] == "Yani Zhao" and "张博士有空报么" in c.nudge["text"]
+    score, why = prioritize("quote_request", Order(is_sales_order=False), [], c,
+                            now=parse_date("2026-10-14T12:00:00+00:00"), s=S)
+    assert why[0].startswith("Yani Zhao asked you Oct 14") and score >= 100

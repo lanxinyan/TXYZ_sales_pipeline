@@ -267,15 +267,17 @@ class Executor:
         return self._get(thread_id)
 
     def ignore(self, thread_id: str) -> Record:
-        """Not a customer (e.g. a vendor): never suggest follow-ups for this domain."""
+        """Not a customer (e.g. a vendor pitching us): never suggest follow-ups for this person.
+        Others at the same company still count as customers."""
         rec = self._get(thread_id)
         email = _customer_email(rec)
         if not email:
             raise ValueError("no external address on this item")
-        domain = email.split("@")[1]
-        self.store.ignore_domain(domain)
-        self.store.update(thread_id, status="skipped", issues=[f"{domain} is not a customer"])
-        self.store.log(thread_id, f"{domain} marked as not a customer")
+        self.store.ignore_domain(email.lower())          # one address, not the whole company
+        issues = [f"{email} is not a customer"]
+        self.store.update(thread_id, status="skipped", issues=issues)
+        self.store.set_decision(thread_id, "skipped", issues=issues)
+        self.store.log(thread_id, f"{email} marked as not a customer")
         return self._get(thread_id)
 
     def retry_crm(self, thread_id: str, step_id: str) -> Record:

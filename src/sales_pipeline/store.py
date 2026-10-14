@@ -164,6 +164,7 @@ class Store:
         return [dict(r) for r in self._all(q + " ORDER BY id DESC LIMIT ?", [*args, limit])]
 
     def ignore_domain(self, domain: str) -> None:
+        """An address (or, from older versions, a whole domain) that is not a customer."""
         self._write("INSERT OR REPLACE INTO ignored VALUES (?,?)", (domain.lower(), _now()))
 
     def ignored_domains(self) -> set[str]:

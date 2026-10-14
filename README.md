@@ -197,7 +197,7 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
   - **Approve & make Gmail drafts** (`A`): Gmail is checked for colleague activity, the routine steps run,
     and the emails go to your Gmail drafts. Then open Gmail, read them over, and press **Send** there.
   - Outcome buttons: **已下单**, **不买了**, **No reply**, snooze **1 day / 3 days / 1 week**, **Not a customer**
-    (vendors, never suggested again).
+    (that one address is never suggested again; others at the same company still are).
   - Edit any email before approving. Follow-ups have a *Wording* picker for the alternatives. After that,
     edit in Gmail.
 - **Upcoming**: scheduled follow-ups with their dates. You can make one's draft early.

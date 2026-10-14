@@ -222,7 +222,9 @@ class Who:
     def customer(self, addr: str) -> bool:
         addr = addr.lower()
         domain = addr.rsplit("@", 1)[-1]
-        return bool(addr) and not self.internal(addr) and not self.system(addr) and domain not in self.ignored
+        # "Not a customer" is remembered per address (older versions stored whole domains).
+        return (bool(addr) and not self.internal(addr) and not self.system(addr)
+                and addr not in self.ignored and domain not in self.ignored)
 
 
 def _sorted(messages: list[EmailMessage]) -> list[EmailMessage]:

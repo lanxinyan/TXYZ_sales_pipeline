@@ -226,7 +226,7 @@ function outcomesHtml(t){
   if(tg.no_response)b.push(`<button class="btn small" data-out="no_response">${esc(tg.no_response)}</button>`);
   return `<div class="outcomes"><span class="lbl">Outcome:</span>${b.join("")}
     <span class="lbl" style="margin-left:8px">Later:</span><button class="btn small" data-snooze="1">1 day</button><button class="btn small" data-snooze="3">3 days</button><button class="btn small" data-snooze="7">1 week</button>
-    <button class="btn small" data-ignore title="Vendor or not a sales contact: never suggest follow-ups for this domain">Not a customer</button></div>`;
+    <button class="btn small" data-ignore title="A vendor or someone who isn't a sales contact: no more follow-ups for this person (others at the same company are not affected)">Not a customer</button></div>`;
 }
 function renderDetail(){
   const d=$("#detail"); $(".bar")?.remove();
@@ -316,7 +316,7 @@ async function skip(){const t=tasks[sel];if(!t)return;try{await api(`tasks/${t.i
 async function snooze(days){const t=tasks[sel];if(!t)return;try{await api(`tasks/${t.id}/snooze`,{days});toast(`Snoozed ${days} day(s).`);await load()}catch(e){toast(e.message)}}
 async function outcome(o,label){const t=tasks[sel];if(!t||!confirm(`Tag “${label}”${info.crm?" in Zoho":" (Cowork does it from the next feed)"} and stop follow-ups?`))return;
   try{await api(`tasks/${t.id}/outcome`,{outcome:o});toast(`Tagged ${label}.`);await load()}catch(e){toast(e.message)}}
-async function ignore(){const t=tasks[sel];if(!t||!confirm("Never suggest follow-ups for this sender's domain?"))return;
+async function ignore(){const t=tasks[sel];const who=(t?.conv?.customer_emails||[])[0]||"this sender";if(!t||!confirm(`Stop suggesting follow-ups for ${who}?\n\nOnly this person: others at the same company still count as customers.`))return;
   try{await api(`tasks/${t.id}/ignore`,{});toast("Ignored.");await load()}catch(e){toast(e.message)}}
 function busyEditing(){return !!document.querySelector("textarea:focus,input:focus")||$("#conflict").open||$("#feed-dlg").open}
 async function writeFeed(all){const b=$("#feed");b.disabled=true;b.textContent="Writing…";

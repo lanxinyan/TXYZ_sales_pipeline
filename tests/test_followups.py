@@ -172,7 +172,10 @@ def test_snooze_ignore_and_due_dates(demo):
     pipe.promote_due()
     assert store.get("demo-fu4").status == "ready"
     rec = ex.ignore("demo-fu2")
-    assert rec.status == "skipped" and "helio-thera.example" in store.ignored_domains()
+    assert rec.status == "skipped" and "p.nair@helio-thera.example" in store.ignored_domains()
+    from sales_pipeline.conversation import Who
+    who = Who(pipe.s, ME, store.ignored_domains())
+    assert not who.customer("p.nair@helio-thera.example") and who.customer("j.doe@helio-thera.example")
     pipe.scan(rescan=True)
     assert store.get("demo-fu2").kind == "other"
 

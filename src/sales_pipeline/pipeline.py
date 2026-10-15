@@ -161,6 +161,8 @@ class Pipeline:
 
         from .tasks import classify
         kind = classify(thread, order, conv, s)
+        if kind == "license" and self.store.meta(f"kind:{thread.id}") == "sales":
+            kind = "quote_request"        # you said it's a sales request after all
         issues: list[str] = list(notes)
         due_at = None
         if kind == "order":
@@ -169,6 +171,8 @@ class Pipeline:
         elif kind == "quote_request":
             status, due_at, extra = self._conversation_status(conv)
             issues += extra
+        elif kind == "license":
+            status = "license"
         else:
             status = "skipped"
             if conv.customer_emails and not owner_is_me(conv):
@@ -364,11 +368,22 @@ class Pipeline:
 
     def promote_due(self) -> dict[str, int]:
         """Follow-ups whose day has come move from Upcoming to To decide."""
-        from .conversation import parse_date
+        from .conversation import parse_date, short
         from .tasks import build_plan
 
         now = datetime.now(timezone.utc)
         moved = 0
+        # Called / 等回复 / 待跟进 with nothing new since: back to To decide.
+        for rec in self.store.list("done"):
+            d = self.store.decision(rec.thread_id) or {}
+            back = parse_date(d.get("back_at"))
+            if back and back <= now:
+                self.store.clear_decision(rec.thread_id)
+                self.store.update(rec.thread_id, status="ready",
+                                  issues=[f"{d.get('label')} {short(d.get('since'))}: no answer since"])
+                self.store.log(rec.thread_id, f"Back to To decide: {d.get('label')} {short(d.get('since'))}, "
+                                              "nothing happened since")
+                moved += 1
         for rec in self.store.list("scheduled"):
             due = parse_date(rec.due_at)
             if due and due <= now and rec.order:

@@ -67,6 +67,8 @@ HOLD = re.compile(
 REVISIT_MARK = re.compile(r"\b(?:it'?s|it has) been (?:a while|some time)\b", re.I)
 # A colleague asking you to act: "张博士报吧", "这个没报 张博士有空报么", "Tony, can you quote this?"
 ASK_TO_ACT = re.compile(r"报|回复|回一下|跟进|quote|reply|follow up|take (?:a look|care)|看下|看一下", re.I)
+# Licensing / collaboration requests go to their own tab (License-in), never to the CRM feed.
+LICENSE_IN = re.compile(r"\blicens(?:e|es|ed|ing)\b|\bcollaborat(?:e|es|ion|ions|ive|ing)\b|授权|许可", re.I)
 CRM_REF = re.compile(r"\b(Inquiry-\d{5,})\b[^\n]{0,30}?\bcrm\b\s*(\w+(?:\s*&\s*\w+)?)?", re.I)
 GREETING = re.compile(r"^\s*(Dear|Hi|Hello|Hey)\b[ ,]*([^,\n]{0,40}?)\s*[,，!]?\s*$", re.I)
 NO_REPLY_LOCALPART = re.compile(r"^(?:no-?reply|do-?not-?reply|mailer-daemon|notifications?|postmaster)\b", re.I)
@@ -337,6 +339,8 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
             conv.phone = conv.phone or inbound.get("phone")
             if inbound.get("topic") and topic_from_subject:
                 conv.topic, topic_from_subject = inbound["topic"], False
+            if conv.first_inbound_at is None:
+                conv.first_inbound_text = text[:2000]
             conv.first_inbound_at = conv.first_inbound_at or iso(at)
             conv.last_inbound_at = iso(at)
             conv.last_inbound_text = text[:2000]

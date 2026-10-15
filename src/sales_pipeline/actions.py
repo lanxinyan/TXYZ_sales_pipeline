@@ -266,6 +266,33 @@ class Executor:
             self.pipeline.close_customer_threads(email, rec.order_code, f"customer ordered ({tag})")
         return self._get(thread_id)
 
+    PARK = {"called": "Called", "waiting": "等回复", "to_follow_up": "待跟进"}
+
+    def park(self, thread_id: str, what: str) -> Record:
+        """Called / 等回复 / 待跟进: off the list (Done), back in To decide after PARK_DAYS if
+        nothing happens in the thread; an email from the customer brings it back right away."""
+        label = self.PARK.get(what)
+        if not label:
+            raise ValueError(f"unknown outcome {what}")
+        self._get(thread_id)
+        now = datetime.now(timezone.utc)
+        back = (now + timedelta(days=self.s.park_days)).isoformat(timespec="seconds")
+        issues = [f"{label} {short(_now())}: back to To decide {short(back)} if nothing happens"]
+        self.store.update(thread_id, status="done", issues=issues)
+        self.store.set_decision(thread_id, "done", issues=issues, back_at=back, label=label, since=_now())
+        self.store.add_feed_item(thread_id, f"note: {now.astimezone():%m%d%y}: called" if what == "called"
+                                 else f"status {label}")
+        self.store.log(thread_id, f"{label}; back to To decide {short(back)} if nothing happens")
+        return self._get(thread_id)
+
+    def not_license(self, thread_id: str) -> Record:
+        """A License-in item that is really a sales request."""
+        self.store.set_meta(f"kind:{thread_id}", "sales")
+        self.store.log(thread_id, "Moved from License-in to sales")
+        if self.gmail is not None:
+            self.pipeline.refresh(thread_id)
+        return self._get(thread_id)
+
     def ignore(self, thread_id: str) -> Record:
         """Not a customer (e.g. a vendor pitching us): never suggest follow-ups for this person.
         Others at the same company still count as customers."""

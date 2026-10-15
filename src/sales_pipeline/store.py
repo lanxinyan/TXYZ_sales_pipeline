@@ -188,12 +188,12 @@ class Store:
         return json.loads(v) if v else None
 
     def set_decision(self, thread_id: str, status: str, due_at: str | None = None,
-                     issues: list[str] | None = None) -> None:
+                     issues: list[str] | None = None, **extra) -> None:
         """Remember a decision you made, for as long as the thread has no new email."""
         rec = self.get(thread_id)
         self.set_meta(f"decision:{thread_id}", json.dumps(
-            {"status": status, "due_at": due_at, "issues": issues, "count": rec.message_count if rec else None},
-            ensure_ascii=False))
+            {"status": status, "due_at": due_at, "issues": issues, "count": rec.message_count if rec else None,
+             **extra}, ensure_ascii=False))
 
     def clear_decision(self, thread_id: str) -> None:
         self._write("DELETE FROM meta WHERE key=?", (f"decision:{thread_id}",))

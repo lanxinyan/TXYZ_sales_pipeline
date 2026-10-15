@@ -91,6 +91,7 @@ class Settings:
     revisit_after_days: int = 30
     revisit_until_days: int = 90
     revisit_followup_days: int = 7
+    park_days: int = 2               # Called / 等回复 / 待跟进: back to To decide if nothing happens
     scan_limit: int = 300            # threads looked at per search (unchanged ones aren't downloaded)
 
     # Until Zoho API access is approved (and the CRM rulebook is final), Sales Desk does not
@@ -162,6 +163,7 @@ class Settings:
             revisit_until_days=int(env("REVISIT_UNTIL_DAYS") or d.revisit_until_days),
             revisit_followup_days=int(env("REVISIT_FOLLOWUP_DAYS") or d.revisit_followup_days),
             scan_limit=int(env("SCAN_LIMIT") or d.scan_limit),
+            park_days=int(env("PARK_DAYS") or d.park_days),
             zoho_direct_updates=_bool(env("ZOHO_DIRECT_UPDATES"), d.zoho_direct_updates),
             crm_feed_dir=env("CRM_FEED_DIR") or d.crm_feed_dir,
             db_path=env("DB_PATH") or d.db_path,

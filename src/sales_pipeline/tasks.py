@@ -40,6 +40,9 @@ def classify(thread: EmailThread, order: Order, conv: Conversation | None, s: Se
         return "order"
     if not conv or not conv.customer_emails:
         return "other"
+    from .conversation import LICENSE_IN
+    if LICENSE_IN.search((conv.first_inbound_text or "") + " " + thread.subject):
+        return "license"          # licensing / collaboration: its own tab, never in the CRM feed
     ours = re.search(s.order_code_regex, thread.subject + "\n" + "\n".join(fresh_text(m.body) for m in thread.messages))
     # A customer who wrote to us and got an answer is a sales conversation, quote or not.
     if (conv.quote_sent or conv.inquiry_forward or conv.asked_for_quote or ours
@@ -121,6 +124,8 @@ def level(score: int) -> str:
 def action_label(kind: str, conv: Conversation | None, s: Settings) -> str:
     if kind == "order":
         return "New order"
+    if kind == "license":
+        return "License-in"
     if kind != "quote_request" or not conv:
         return ""
     if conv.stage == "reply_needed":
@@ -264,6 +269,14 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                 st["detail"] = "Checked: nobody has sent this to accounting yet. Checked again right before sending."
             steps.append(st)
 
+    elif kind == "license" and conv and conv.stage == "reply_needed":
+        email = conv.customer_emails[0] if conv.customer_emails else ""
+        inbound = conv.last_inbound or {}
+        steps.append(dict(
+            id="reply", gated=True, enabled=True, crm_log=False,
+            title="Reply (licensing / collaboration request)", detail="Not followed up automatically; not sent to Cowork.",
+            draft=_draft(T["reply"], vals, [email], customers_only(inbound.get("customer_cc", []), s),
+                         _re(_strip_fwd(inbound.get("subject") or subject)), in_reply_to=inbound.get("rfc_id", ""))))
     elif kind == "quote_request" and conv:
         signals = {x["kind"]: x["text"] for x in conv.signals}
         email = conv.customer_emails[0] if conv.customer_emails else ""

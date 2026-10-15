@@ -216,6 +216,13 @@ def demo_threads() -> tuple[list[EmailThread], dict[str, Order], dict[str, list[
           _ago(days=41), "Cryo-EM for a membrane protein", name="Ada Okoro"),
         M(ME, ["a.okoro@meadow-demo.example"], "Dear Ada,\n\nYes, we do. Could you share the protein size "
           "and how many constructs?\n\nBest regards,\nTony", _ago(days=40), s, name="Tony")], url))
+
+    # 16. A licensing / collaboration offer -> License-in tab (not followed up, never in the Cowork feed).
+    s = "Licensing opportunity: nanobody platform"
+    T.append(EmailThread("demo-license", s, [
+        M("bd@quill-bio-demo.example", [ME], "Dear Dr. Zhang, we would like to discuss licensing our nanobody "
+          "discovery platform or a research collaboration with Creative Biostructure. Best, Sam Quill",
+          _ago(days=1), s, name="Sam Quill")], url))
     return T, answers, late
 
 

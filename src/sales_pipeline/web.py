@@ -26,7 +26,8 @@ log = logging.getLogger(__name__)
 VIEWS = {
     "todo": ["needs_review", "ready", "failed", "approved"],
     "upcoming": ["scheduled"],
-    "revisit": ["revisit"],         # quiet 30 days to 3 months: "it's been a while"
+    "revisit": ["revisit"],
+    "license": ["license"],         # licensing / collaboration requests: never in the CRM feed         # quiet 30 days to 3 months: "it's been a while"
     "send": ["awaiting_send"],      # drafts waiting in Gmail for you to send
     "done": ["done", "pushed"],
     "skipped": ["skipped"],
@@ -147,6 +148,10 @@ class App:
                         rec = ex.snooze(tid, float(body.get("days", 1)), why="snoozed by you")
                     elif action == "outcome":
                         rec = ex.outcome(tid, body["outcome"])
+                    elif action == "park":
+                        rec = ex.park(tid, body["what"])
+                    elif action == "not_license":
+                        rec = ex.not_license(tid)
                     elif action == "ignore":
                         rec = ex.ignore(tid)
                     elif action == "retry":

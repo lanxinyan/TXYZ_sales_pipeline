@@ -282,7 +282,12 @@ def collect(pipeline, everything: bool = False, days: int = 30, lock=None, left_
                 keys.append(k)
         items = items_by_thread.get(rec.thread_id, [])
         for it in items:
-            tags.append(f"{it['text']} (you chose this in Sales Desk on {short(it['ts'])})")
+            if it["text"].startswith("note: "):        # e.g. "note: 101526: called"
+                code_words = it["text"][6:].split(": ", 1)
+                at = parse_date(it["ts"]) or datetime.now(timezone.utc)
+                entries.append(Entry(at, "", code_words[-1], "Tony", "marked in Sales Desk", f"item:{it['id']}"))
+            else:
+                tags.append(f"{it['text']} (you chose this in Sales Desk on {short(it['ts'])})")
         new_inquiry = not info["inquiry"] and rec.kind == "quote_request"
         create_key = f"{rec.thread_id}:create"
         ask_create = new_inquiry and (everything or not store.feed_seen(create_key))
@@ -299,12 +304,17 @@ def collect(pipeline, everything: bool = False, days: int = 30, lock=None, left_
             "topic": topic, "info": info, "entries": sorted(entries, key=lambda e: e.at), "tags": tags,
             "keys": keys + [e.key for e in entries], "item_ids": [it["id"] for it in items],
             "create": ask_create, "key_customer": big, "returned": bool(earlier), "team": team,
+            # Processed = you (or a colleague) did something: an email to the customer, an order, or a
+            # button in Sales Desk. Only processed conversations are for Cowork to apply.
+            "processed": rec.kind == "order" or bool(items) or any(e.who != "customer" for e in entries),
         })
     sections.sort(key=lambda x: (not x["create"], -(x["entries"][-1].at.timestamp() if x["entries"] else 0)))
     return sections
 
 
 def render(sections: list[dict], s, now: datetime | None = None, left_out: list | None = None) -> str:
+    waiting = [x for x in sections if not x["processed"]]
+    sections = [x for x in sections if x["processed"]]
     now = (now or datetime.now(timezone.utc)).astimezone()
     n_entries = sum(len(x["entries"]) for x in sections)
     n_new = sum(1 for x in sections if x["create"])
@@ -313,14 +323,15 @@ def render(sections: list[dict], s, now: datetime | None = None, left_out: list 
          "only CBSXY or CBSRX records, never CBSMA or any other team; one running note per inquiry, new entries "
          "appended at the end; confirm every change with Tony before saving. Skip a note line that is already "
          "in the note. The words after each code are a suggestion: improve them from the excerpt, in Tony's "
-         "short style.", "",
+         "short style. License-in (licensing / collaboration) requests and non-customers are never in this "
+         "feed: never update their records.", "",
          f"{len(sections)} conversation(s) · {n_entries} note entr{'y' if n_entries == 1 else 'ies'} · "
          f"{n_new} without an Inquiry number in Gmail", ""]
     if left_out:
         L += [f"Left out (another team's quote/order number, never touched; or Gmail busy): "
               f"{'; '.join(left_out)}", ""]
     if not sections:
-        L += ["Nothing new since the last feed."]
+        L += ["Nothing processed since the last feed."]
     for i, x in enumerate(sections, 1):
         rec, info = x["rec"], x["info"]
         title = " · ".join(v for v in (x["name"], x["company"]) if v) or x["email"]
@@ -370,6 +381,15 @@ def render(sections: list[dict], s, now: datetime | None = None, left_out: list 
                 L.append(f"  - Then post `Inquiry-00NNNNN crm created` in the internal thread above, as a Gmail "
                          f"**draft** for Tony to send, to internal people only: {', '.join(info['internal_people'])}")
         L.append("")
+    if waiting:
+        L += ["---", "", "## Not processed yet: don't change these records",
+              "", "Tony hasn't acted on these yet. They come back in a later feed, in full, once he has.", ""]
+        for x in waiting:
+            title = " · ".join(v for v in (x["name"], x["company"]) if v) or x["email"]
+            news = sum(1 for e in x["entries"] if e.who == "customer")
+            L.append(f"- {title} ({x['email']}): " + ", ".join(
+                p for p in (f"{news} new email(s) from the customer" if news else "",
+                            "new inquiry, not answered yet" if x["create"] else "") if p))
     return "\n".join(L).rstrip() + "\n"
 
 
@@ -377,9 +397,11 @@ def export(pipeline, everything: bool = False, days: int = 30, out_dir: str | No
     """Write the feed file; what it contains is not repeated in the next one."""
     s, store = pipeline.s, pipeline.store
     left_out: list[str] = []
-    sections = collect(pipeline, everything, days, lock, left_out)
+    every = collect(pipeline, everything, days, lock, left_out)
+    sections = [x for x in every if x["processed"]]       # what isn't processed yet stays for later feeds
+    waiting = len(every) - len(sections)
     if not sections:
-        return {"path": None, "conversations": 0, "entries": 0, "new_inquiries": 0}
+        return {"path": None, "conversations": 0, "entries": 0, "new_inquiries": 0, "waiting": waiting}
     now = datetime.now(timezone.utc)
     raw = out_dir or s.crm_feed_dir
     fix = (f"CRM_FEED_DIR in .env isn't a folder Windows can use ({raw}). Open the Cowork folder in File "
@@ -393,11 +415,11 @@ def export(pipeline, everything: bool = False, days: int = 30, out_dir: str | No
     except OSError as e:
         raise ValueError(f"{fix} ({e.strerror or e})") from e
     path = folder / f"gmail-feed-{now.astimezone():%Y-%m-%d-%H%M%S}.md"
-    path.write_text(render(sections, s, now, left_out), encoding="utf-8")
+    path.write_text(render(every, s, now, left_out), encoding="utf-8")
     store.mark_feed([k for x in sections for k in x["keys"]])
     store.mark_items_exported([i for x in sections for i in x["item_ids"]])
     store.set_meta("last_feed", now.isoformat(timespec="seconds"))
     entries = sum(len(x["entries"]) for x in sections)
     store.log("", f"Gmail feed for Cowork: {len(sections)} conversation(s), {entries} note entries -> {path}")
     return {"path": str(path.resolve()), "conversations": len(sections), "entries": entries,
-            "new_inquiries": sum(1 for x in sections if x["create"])}
+            "new_inquiries": sum(1 for x in sections if x["create"]), "waiting": waiting}

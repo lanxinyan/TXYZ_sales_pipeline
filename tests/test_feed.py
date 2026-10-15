@@ -34,11 +34,12 @@ def test_the_feed_speaks_the_rulebook(demo):
     assert "add `No reply`: 4 follow-ups" in section(text, "m.ito@bluefin-bio.example")
     lee = section(text, "Harborline")
     assert re.search(r"`\d{6}: PO received`", lee) and "add `已下单`" in lee and "Key Customer:** YES" in lee
-    usa = section(text, "Hanna Berg")
-    assert "New record" in usa and "draft** for Tony to send, to internal people only: usa@" in usa
+    # Not processed yet (nobody has answered): listed at the end only, nothing for Cowork to do.
+    processed, waiting = text.split("## Not processed yet", 1)
+    assert "Hanna Berg" not in processed and "Hanna Berg (h.berg@fjord-bio.example): new inquiry" in waiting
     # Not Tony's: the support@ thread he is only copied on, the GPU vendor, and an inquiry with nothing new.
     assert "s.kim@" not in text and "gpu-vendor" not in text and "Robin" not in text
-    assert not re.search(r"[一-鿿]{2,}", usa)                       # no internal Chinese notes
+    assert not re.search(r"[一-鿿]{2,}", text.split("Tags:")[0])     # no internal Chinese notes
     assert export(pipe)["path"] is None                                      # nothing is repeated
 
 
@@ -52,8 +53,63 @@ def test_new_activity_and_decisions_show_up_in_the_next_feed(demo):
     ex = Executor(pipe.s, store, gmail=gmail, pipeline=pipe)
     ex.outcome("demo-fu4", "lost")
     text = open(export(pipe)["path"], encoding="utf-8").read()
-    assert re.search(r"`\d{6}r: wants discount`: “Thanks Tony, is there any discount", text)
     assert "tag 不买了 (you chose this in Sales Desk" in text
+    # The customer's question isn't processed until you answer: then it comes in full.
+    assert "Priya Nair (p.nair@helio-thera.example): 1 new email(s) from the customer" in text
+    gmail.threads["demo-fu2"].messages.append(EmailMessage(
+        "n2", ME, ["p.nair@helio-thera.example"], [], "Re: Quote", datetime.now(timezone.utc).isoformat(),
+        "Dear Priya,\n\nYes, 10% off for 5 antibodies.", message_id="<n2@m>"))
+    text = open(export(pipe)["path"], encoding="utf-8").read()
+    fu2 = section(text, "Priya Nair")
+    assert re.search(r"`\d{6}r: wants discount`: “Thanks Tony, is there any discount", fu2)
+    assert re.search(r"`\d{6}f: answered`", fu2)
+
+
+def test_called_waiting_and_to_follow_up_come_back_after_two_days(demo):
+    store, gmail, pipe = demo
+    pipe.crm = None
+    ex = Executor(pipe.s, store, gmail=gmail, pipeline=pipe)
+    assert ex.park("demo-fu2", "called").status == "done"
+    ex.park("demo-revisit", "waiting")
+    pipe.scan(rescan=True)                                                   # stays parked
+    assert store.get("demo-fu2").status == "done" and store.get("demo-revisit").status == "done"
+    assert re.search(r"`\d{6}: called`", section(open(export(pipe)["path"], encoding="utf-8").read(), "Priya"))
+    for tid in ("demo-fu2", "demo-revisit"):                                  # two days pass
+        d = store.decision(tid)
+        d["back_at"] = "2026-01-01T00:00:00+00:00"
+        store.set_meta(f"decision:{tid}", __import__("json").dumps(d))
+    pipe.promote_due()
+    rec = store.get("demo-fu2")
+    assert rec.status == "ready" and rec.issues[0].startswith("Called") and "no answer since" in rec.issues[0]
+    # A customer email while parked brings it back at once.
+    ex.park("demo-fu4", "to_follow_up")
+    gmail.threads["demo-fu4"].messages.append(EmailMessage(
+        "p1", "d.okafor@kestrel-labs.example", [ME], [], "Re: Quote", datetime.now(timezone.utc).isoformat(),
+        "We are ready to go ahead.", message_id="<p1@m>"))
+    pipe.scan()
+    assert store.get("demo-fu4").status == "ready"
+
+
+def test_licensing_requests_have_their_own_tab_and_never_reach_cowork(demo, settings):
+    from sales_pipeline.models import EmailThread
+
+    store, gmail, pipe = demo
+    t = EmailThread("demo-lic", "Licensing opportunity", [EmailMessage(
+        "l1", "bd@biotech-demo.example", [ME], [], "Licensing opportunity", datetime.now(timezone.utc).isoformat(),
+        "We would like to discuss licensing our nanobody platform or a research collaboration.",
+        message_id="<l1@m>")], "https://mail.google.com/")
+    gmail.threads[t.id] = t
+    pipe.scan()
+    rec = store.get("demo-lic")
+    assert (rec.kind, rec.status) == ("license", "license") and rec.plan[0]["id"] == "reply"
+    gmail.threads[t.id].messages.append(EmailMessage(
+        "l2", ME, ["bd@biotech-demo.example"], [], "Re: Licensing opportunity", datetime.now(timezone.utc).isoformat(),
+        "Thanks, let me check internally.", message_id="<l2@m>"))
+    pipe.scan()
+    text = open(export(pipe, everything=True)["path"], encoding="utf-8").read()
+    assert "biotech-demo" not in text
+    Executor(pipe.s, store, gmail=gmail, pipeline=pipe).not_license("demo-lic")   # "It's a sales request"
+    assert store.get("demo-lic").kind == "quote_request"
 
 
 def test_other_teams_are_left_out(demo):

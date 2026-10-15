@@ -86,6 +86,9 @@ writes a file that Cowork reads and applies, asking you before each change:
   sent to you. Threads you're only copied on are left out, and so is anything whose quote/order number
   belongs to another team (CBSMA …).
 - Each feed only has what's new since the last one (`sales-pipeline crm-feed --all` repeats everything).
+- **Only what you processed** goes to Cowork: conversations where you (or a colleague) wrote to the customer,
+  orders, and buttons you pressed. A customer email you haven't answered yet, or a new inquiry nobody has
+  answered, is only listed at the end under "Not processed yet" and comes in full once you act on it.
 
 ## Getting started
 
@@ -203,6 +206,12 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
 - **Upcoming**: scheduled follow-ups with their dates. You can make one's draft early.
 - **Revisit**: customers who went quiet 30 days to 3 months ago, quote-sent ones first. Work through them at
   your pace: the check-in becomes a Gmail draft like any other email.
+- **License-in**: emails whose first message is about licensing or a collaboration. They get a reply draft
+  if you want one, but no automatic follow-ups, and they are never in the Cowork feed. **It's a sales
+  request** moves one back to the normal list.
+- **You: Called / 等回复 / 待跟进** (on every item): moves it to Done. If nothing happens in the thread for 2
+  days (`PARK_DAYS`), it comes back to To decide; an email from the customer brings it back at once.
+  Called also adds `MMDDYY: called` to the Cowork feed.
 - What you decide (an outcome button, Skip, a snooze) stays decided until the customer or a colleague writes
   in that thread again.
 - **In Gmail drafts**: drafts waiting for you to send. **Open in Gmail** opens it; **I sent it: check Gmail**

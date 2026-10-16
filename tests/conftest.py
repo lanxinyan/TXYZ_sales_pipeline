@@ -23,6 +23,7 @@ def settings(tmp_path):
     s = Settings()
     s.db_path = str(tmp_path / "t.db")
     s.use_llm = False
+    s.skip_weekends = False      # dates in tests are exact; weekends have their own test
     return s
 
 

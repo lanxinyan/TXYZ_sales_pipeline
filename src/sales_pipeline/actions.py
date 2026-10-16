@@ -9,19 +9,21 @@ sync    -> on every scan: drafts you sent from Gmail are picked up (recorded for
 """
 from __future__ import annotations
 
+import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 
 from .config import Settings
 from .conversation import (Who, display_name, first_line, forward_origin, fresh_text, invoice_status,
-                           parse_date, short)
+                           parse_date, short, workday)
 from .models import Order
 from .pipeline import Pipeline, validate
 from .safety import addresses
 from .safety import check as check_safe
 from .store import Record, Store
 from .tasks import build_plan
-from .templates import PLACEHOLDER_REPLY
+from .templates import FILL_IN, PLACEHOLDER_REPLY, strike
 
 log = logging.getLogger(__name__)
 
@@ -71,6 +73,7 @@ class Executor:
         for st in emails:
             self._check_written(st)
             check_safe(st["draft"], self.s)
+            self._reserve_quote_numbers(rec, st, check_only=True)
         if emails:
             # Look again before anything is drafted: did a colleague or the customer write meanwhile?
             reasons: list[str] = []
@@ -229,7 +232,7 @@ class Executor:
         return self._get(thread_id)
 
     def snooze(self, thread_id: str, days: float, why: str = "") -> Record:
-        due = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat(timespec="seconds")
+        due = workday(datetime.now(timezone.utc) + timedelta(days=days), self.s).isoformat(timespec="seconds")
         self.store.update(thread_id, status="scheduled", due_at=due)
         self.store.set_decision(thread_id, "scheduled", due_at=due, issues=self._get(thread_id).issues)
         self.store.log(thread_id, f"Snoozed until {short(due)}" + (f" ({why})" if why else ""))
@@ -276,7 +279,7 @@ class Executor:
             raise ValueError(f"unknown outcome {what}")
         self._get(thread_id)
         now = datetime.now(timezone.utc)
-        back = (now + timedelta(days=self.s.park_days)).isoformat(timespec="seconds")
+        back = workday(now + timedelta(days=self.s.park_days), self.s).isoformat(timespec="seconds")
         issues = [f"{label} {short(_now())}: back to To decide {short(back)} if nothing happens"]
         self.store.update(thread_id, status="done", issues=issues)
         self.store.set_decision(thread_id, "done", issues=issues, back_at=back, label=label, since=_now())
@@ -417,7 +420,9 @@ class Executor:
         to = _split(d.get("to"))
         if not to:
             raise ValueError("the email has no recipient")
+        d["body"] = strike(d["body"])  # ~~$650/sample~~ is sent crossed out
         check_safe(d, self.s)          # customers only, no Chinese: checked on the final text
+        self._reserve_quote_numbers(rec, st)
         thread_id = (st.get("target_thread") or rec.thread_id) if d.get("in_thread") else None
         made = self.gmail.create_draft(thread_id, to, d["subject"], d["body"], d.get("in_reply_to", ""),
                                        _split(d.get("cc")), d.get("quote"))
@@ -455,8 +460,23 @@ class Executor:
 
     @staticmethod
     def _check_written(st: dict) -> None:
-        if st.get("gated") and PLACEHOLDER_REPLY in (st.get("draft") or {}).get("body", ""):
+        body = (st.get("draft") or {}).get("body", "")
+        if st.get("gated") and PLACEHOLDER_REPLY in body:
             raise ValueError("Write your reply first (replace “[write your reply here]”)")
+        if st.get("gated") and FILL_IN in body:
+            raise ValueError("Fill in the “[fill in: …]” parts of the quote first")
+
+    def _reserve_quote_numbers(self, rec: Record, st: dict, check_only: bool = False) -> None:
+        """A quote number in a draft quote is kept for this conversation, so no other draft reuses it."""
+        if "Quote Number:" not in st["draft"].get("body", ""):    # the draft-quote wording, however chosen
+            return
+        used = json.loads(self.store.meta("quote_numbers") or "{}")
+        for n in re.findall(self.s.order_code_regex, st["draft"]["body"]):
+            if used.get(n, rec.thread_id) != rec.thread_id:
+                raise ValueError(f"Quote number {n} is already used in another draft; please change it")
+            used[n] = rec.thread_id
+        if not check_only:
+            self.store.set_meta("quote_numbers", json.dumps(used))
 
     # ---------- helpers ----------
 

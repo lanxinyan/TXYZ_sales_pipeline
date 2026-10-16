@@ -7,7 +7,7 @@ from sales_pipeline.models import EmailMessage, EmailThread
 ME = "xinyan.zhang@creative-biostructure.com"
 YANI = "yani.zhao@creative-biostructure.com"
 CUST = "pat@lab.example"
-S = Settings()
+S = Settings(skip_weekends=False)
 
 FORM = """---------- Forwarded message ---------
 From: <admin@cd-sciences.info>
@@ -310,3 +310,17 @@ def test_the_second_website_form_layout_and_a_colleague_asking_you_to_quote():
     score, why = prioritize("quote_request", Order(is_sales_order=False), [], c,
                             now=parse_date("2026-10-14T12:00:00+00:00"), s=S)
     assert why[0].startswith("Yani Zhao asked you Oct 14") and score >= 100
+
+
+def test_follow_ups_due_on_a_weekend_move_to_monday():
+    from datetime import datetime, timezone
+
+    from sales_pipeline.conversation import workday
+
+    s = Settings()                                                     # skip_weekends on (the default)
+    fri = datetime(2026, 10, 16, 15, 0, tzinfo=timezone.utc)           # a Friday
+    assert workday(fri, s) == fri
+    assert workday(fri + timedelta(days=1), s).astimezone().weekday() == 0      # Saturday -> Monday
+    t = EmailThread("t", "Re: Quote", [M(ME, [CUST], "Below is our quote CBSXY10152601.", fri.isoformat())])
+    c = analyze(t, s, ME, now=fri)                                     # follow-up 1 would be Saturday
+    assert parse_date(c.due_at).astimezone().weekday() == 0

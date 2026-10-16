@@ -16,6 +16,10 @@
 # when a quote was sent, followup_3_service otherwise. Follow-ups are sent as a
 # reply in the same thread, with your previous email quoted underneath.
 #
+# draft_quote / draft_quote_tem: pick them as the wording of any reply. Replace every
+# "[fill in: ...]" (the draft can't be made before). ~~text~~ is shown crossed out
+# (the list price). {quote_number} is a suggestion: CBSXY + today's date + 01, 02 ...
+#
 # revisit_quote / revisit_service: for conversations that went quiet 30 days to 3
 # months ago. Keep the words "it's been a while": that is how Sales Desk recognises
 # the check-in afterwards (one last follow-up a week later, then No reply).
@@ -91,6 +95,71 @@ Please let us know if there is anything we can help with. You can reach me at {s
 It's been a while since we last talked{about_topic}, and I hope your work is going well. I wanted to check whether this is still something you are planning. If so, please let us know a few details (sample type, number of samples and your timeline), and we will prepare a quote for you right away.
 
 Please let us know if there is anything we can help with. You can reach me at {sender_phone} or by email.
+
+{signature}
+
+=== draft_quote | Draft quote: pricing in the email ===
+{greeting}
+
+Hope you are doing well. Thank you for your patience while we were preparing the proposal. Please find the below pricing information and let us know if you have any questions.
+
+Quote Number: {quote_number}
+(This quotation is valid within 30 days. Please indicate the quote number when placing order.)
+
+{project_line}Technical notes: [fill in: questions for the customer, or our suggestions]
+Service: {service}
+~~[fill in: list price, e.g. $650/sample]~~
+[fill in: offer, e.g. Summer promotion: $520/sample for 12 samples. Total: $6,240]
+-- [fill in: what is included, e.g. includes the sample preparation and image acquisition]
+-- [fill in: method / instrument]
+-- [fill in: what is delivered]
+[fill in: turnaround, e.g. 5-8 weeks]
+Deliverables: [fill in: e.g. Raw data + Project report]
+
+Sample requirements:
+   * -- [fill in: sample requirements for this service]
+Terms and Conditions
+   * A 60% upfront payment is required and is non-refundable.
+   * A minimum of $900 per order is required.
+   * Discounts are available for projects involving more than 5 samples.
+   * Shipping is free if a courier account is provided, otherwise $85 for domestic shipment of order volume under 8 kgs;
+Handling fee: $55, or waived for order amount over $5,000
+Please take your time reviewing this information and let us know if you have any questions. If this looks good, we are happy to proceed with generating a formal quotation for you.
+We look forward to hearing back from you.
+
+{signature}
+
+=== draft_quote_tem | Draft quote: TEM of tissue samples ===
+{greeting}
+
+Hope you are doing well. Thank you for your patience while we were preparing the proposal. Please find the below pricing information and let us know if you have any questions.
+
+Quote Number: {quote_number}
+(This quotation is valid within 30 days. Please indicate the quote number when placing order.)
+
+{project_line}Technical notes: [fill in: questions for the customer, or our suggestions]
+Service: TEM analysis of [fill in: number and type, e.g. 12 liver tissue] samples, including embedding and sectioning
+~~$650/sample~~
+[fill in: offer, e.g. Summer promotion: $520/sample for 12 samples. Total: $6,240]
+-- includes the sample preparation and image acquisition
+-- Images is collected by 30-80 kV Transmission Electron Microscope
+-- 8-10 representative figures will be delivered
+5-8 weeks
+Deliverables: Raw images + Project report
+
+Sample requirements:
+   * -- Tissue size: approximately 1 × 1 × 1 cm, fixed in 2.5% glutaraldehyde.
+   * -- Samples must be stored and shipped at 4°C with ice packs. Do not freeze the samples.
+   * -- Samples may be placed in 1.5 mL microcentrifuge tubes (EP tubes). A 15mL tube is not required, provided that the tissue is completely submerged in the fixative.
+   * -- During shipment, wrap the sample tubes in foam or another insulating material. The tubes should not come into direct contact with the ice packs, as this may cause the samples to freeze.
+Terms and Conditions
+   * A 60% upfront payment is required and is non-refundable.
+   * A minimum of $900 per order is required.
+   * Discounts are available for projects involving more than 5 samples.
+   * Shipping is free if a courier account is provided, otherwise $85 for domestic shipment of order volume under 8 kgs;
+Handling fee: $55, or waived for order amount over $5,000
+Please take your time reviewing this information and let us know if you have any questions. If this looks good, we are happy to proceed with generating a formal quotation for you.
+We look forward to hearing back from you.
 
 {signature}
 

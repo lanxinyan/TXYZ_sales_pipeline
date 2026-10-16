@@ -335,3 +335,48 @@ def test_your_decisions_survive_reading_the_threads_again(demo):
         datetime.now(timezone.utc).isoformat(), "Sorry for the delay, we are still interested.", message_id="<w1@m>"))
     pipe.scan()
     assert store.get("demo-fu4").status == "ready"         # a new email from the customer reopens it
+
+
+def test_draft_quote_wording_with_a_suggested_number(demo):
+    from datetime import datetime
+
+    from sales_pipeline.conversation import analyze, quote_sent_in
+
+    store, gmail, _, pipe, ex = demo
+    rec = store.get("demo-inquiry")                      # website form: "Need a liposome formulation ..."
+    reply = next(s for s in rec.plan if s["id"] == "reply")
+    variants = {v["key"]: v["body"] for v in reply["draft"]["variants"]}
+    assert set(variants) == {"first_reply", "draft_quote", "draft_quote_tem"}
+    q = variants["draft_quote"]
+    today = datetime.now().astimezone().strftime("%m%d%y")
+    assert f"Quote Number: CBSXY{today}01" in q
+    assert "Project description: Need a liposome formulation for a hydrophobic drug, ~5 batches." in q
+    assert "Service: Liposome Formulation" in q and "[fill in:" in q
+    # Can't be drafted while "[fill in" parts are left.
+    with pytest.raises(ValueError, match="Fill in"):
+        ex.approve("demo-inquiry", steps={"reply": {"draft": {"body": q}}})
+    filled = q.replace("Technical notes: [fill in: questions for the customer, or our suggestions]",
+                       "Technical notes: none")
+    import re as _re
+    filled = _re.sub(r"\[fill in: [^\]]*\]", "x", filled).replace("~~x~~", "~~$650/sample~~")
+    reply_choice = {"reply": {"draft": {"body": filled}}}
+    rec = ex.approve("demo-inquiry", steps=reply_choice)
+    assert rec.status == "awaiting_send"
+    # The number is now taken: other drafts get the next one, and nobody can reuse it.
+    assert pipe.next_quote_number() == f"CBSXY{today}02"
+    store.update("demo-usa", plan=[dict(st, draft=dict(st["draft"], body=filled, template="draft_quote"))
+                                   if st["id"] == "reply" else st for st in store.get("demo-usa").plan])
+    with pytest.raises(ValueError, match="already used"):
+        ex.approve("demo-usa")
+    # Once sent, it counts as a quote (CBSXY number in it).
+    send_in_gmail(gmail, ex, "demo-inquiry")
+    sent = gmail.threads["demo-inquiry"].messages[-1]
+    assert quote_sent_in(sent.body, [], ex.s.order_code_regex)
+    assert "~~" not in sent.body and "$\u0336" in sent.body               # the list price is crossed out
+    assert analyze(gmail.threads["demo-inquiry"], ex.s, ME).quote_sent
+
+
+def test_list_price_is_crossed_out_in_plain_text():
+    from sales_pipeline.templates import strike
+
+    assert strike("~~$650/sample~~ now $520") == "".join(c + "̶" for c in "$650/sample") + " now $520"

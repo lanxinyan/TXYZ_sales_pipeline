@@ -118,7 +118,7 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 
 # Bump when the plan rules change: open items saved by an older version are planned again
 # (e.g. version 2: customer emails go to the customer only, never to colleagues).
-PLAN_VERSION = "2"
+PLAN_VERSION = "3"   # 3: draft-quote wording on replies
 # Bump when the way threads are read changes: every thread is then read again once
 # (e.g. version 2: "we will send a formal quote" is a promise, not a quote sent).
 READ_VERSION = "4"   # 3: quiet 30 days-3 months revisited; 4: second website-form layout, colleague nudges
@@ -236,7 +236,8 @@ class Pipeline:
         from .conversation import invoice_status
         from .tasks import PlanContext
 
-        ctx = PlanContext(templates=self.templates, tags=self.tags, crm=self.crm is not None)
+        ctx = PlanContext(templates=self.templates, tags=self.tags, crm=self.crm is not None,
+                          quote_number=self.next_quote_number())
         if kind == "quote_request":
             if self.crm is not None and conv is not None and conv.customer_emails and not conv.replied_ever:
                 try:   # a colleague may already have created the inquiry in Zoho
@@ -344,6 +345,19 @@ class Pipeline:
             due = self.promote_due()
         counts.update({k: counts.get(k, 0) + v for k, v in due.items()})
         return counts
+
+    def next_quote_number(self) -> str:
+        """CBSXY + today's date + the first free 01, 02 ... (numbers already in drafts or orders are skipped).
+        A suggestion: check it against your quote list before sending."""
+        import json
+
+        day = datetime.now(timezone.utc).astimezone().strftime("%m%d%y")
+        taken = set(json.loads(self.store.meta("quote_numbers") or "{}"))
+        taken |= {r.order_code for r in self.store.list() if r.order_code}
+        n = 1
+        while f"{self.s.quote_prefix}{day}{n:02d}" in taken:
+            n += 1
+        return f"{self.s.quote_prefix}{day}{n:02d}"
 
     def upgrade_plans(self) -> int:
         """Re-plan open items saved by an older version, so its rules don't linger."""

@@ -30,6 +30,7 @@ class PlanContext:
     customer_thread: dict | None = None  # the customer's own thread for an order: {thread_id, conv}
     crm_record: tuple | None = None      # (module, id) when the customer is already in Zoho
     crm: bool = True                     # False: Zoho changes go to Cowork via the Gmail feed
+    quote_number: str = ""               # suggested number for a draft quote
 
 
 # ---------- what is it ----------
@@ -169,6 +170,10 @@ def values(s: Settings, order: Order, conv: Conversation | None) -> dict:
     email = order.customer.email or (conv.customer_emails[0] if conv and conv.customer_emails else "")
     company = order.customer.company or (conv.company if conv else None) or ""
     prepay = bool(order.payment_terms and "prepay" in order.payment_terms.lower())
+    described = ""
+    if conv and conv.first_inbound_text:
+        from .conversation import form_fields
+        described = (form_fields(conv.first_inbound_text).get("description") or "").strip()
     sal = conv.salutation if conv else None
     if sal:   # greet them the way we (you or a colleague) last did: "Dear Dr. Okafor,"
         greeting = f"{sal['word']} {sal['name']},"
@@ -176,6 +181,8 @@ def values(s: Settings, order: Order, conv: Conversation | None) -> dict:
         greeting = f"Hi {first}," if first else "Hello,"
     return dict(
         greeting=greeting, first_name=first,
+        project_line=f"Project description: {' '.join(described.split())}\n" if described else "",
+        service=(conv.topic if conv and conv.topic else "") or "[fill in: service]",
         sender_name=s.sender_name, sender_phone=s.sender_phone, signature=s.signature(),
         topic=topic, about_topic=f" about {topic}" if topic else "",
         order_code=order.order_code or "", total=total or "as quoted", items=items,
@@ -222,6 +229,8 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                ctx: PlanContext, previous: list[dict] | None = None) -> list[dict]:
     T = ctx.templates
     vals = values(s, order, conv)
+    vals["quote_number"] = ctx.quote_number or "[fill in: quote number]"
+    quotes = [T[k] for k in ("draft_quote", "draft_quote_tem") if k in T]
     steps: list[dict] = []
     who = vals["company"] or vals["customer_email"] or "customer"
     tag = ctx.tags
@@ -312,7 +321,8 @@ def build_plan(kind: str, order: Order, conv: Conversation | None, subject: str,
                         f"Template: {t.label}"),
                 draft=_draft(t, vals, [email], customers_only(inbound.get("customer_cc", []), s),
                              _re(_strip_fwd(inbound.get("subject") or subject)),
-                             in_reply_to=inbound.get("rfc_id", ""))))
+                             in_reply_to=inbound.get("rfc_id", ""),
+                             variants=[t] + (quotes if t.key in ("first_reply", "reply") else []))))
             if "declined" in signals and tag.get("lost"):
                 steps.append(dict(id="tag_lost", gated=False, enabled=True,
                                   title=f"Tag {tag['lost']} {where} and stop follow-ups",

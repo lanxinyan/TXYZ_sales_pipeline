@@ -162,7 +162,8 @@ Then **Feed for Cowork** (top right of the page) writes `gmail-feed-<date>.md` t
 - The first feed for Cowork covers the last 30 days (`sales-pipeline crm-feed --days 60` for more).
 
 **Optional settings** (`.env`): `REVISIT_AFTER_DAYS` / `REVISIT_UNTIL_DAYS` (default 30 / 90),
-`REVISIT_FOLLOWUP_DAYS` (7), `SCAN_LIMIT` (threads per search, default 300), `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template),
+`REVISIT_FOLLOWUP_DAYS` (7), `SCAN_LIMIT` (threads per search, default 300), `SKIP_WEEKENDS` (true: anything
+due on a Saturday or Sunday moves to Monday), `PARK_DAYS` (2), `QUOTE_PREFIX` (CBSXY), `SENDER_NAME`, `SENDER_PHONE` (default 1-631-559-9269, from the order template),
 `EMAIL_SIGNATURE`. Add `ANTHROPIC_API_KEY` to let Claude read order emails and their PDF quotes/POs. Without
 it, order forms are read by the built-in parser, and follow-ups work the same.
 
@@ -221,6 +222,15 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
 - **Activity**: everything Sales Desk did on its own (drafts made, emails you sent, feeds written, snoozes).
 
 `sales-pipeline followups` prints the same due/upcoming list in the terminal.
+
+## Draft quotes
+
+On any reply, the *Wording* picker offers **Draft quote: pricing in the email** and **Draft quote: TEM of tissue
+samples**. The quote number is suggested as `CBSXY` + today's date + `01`, `02` … (`QUOTE_PREFIX`); numbers
+already in a draft or an order are skipped, and a number can't be used in two drafts. Check it against your
+quote list. The project description comes from the customer's form when they gave one. Replace every
+`[fill in: …]` (the draft can't be made before); `~~$650/sample~~` is sent crossed out. Once sent, the
+conversation counts as quoted and the Cowork feed gets `MMDDYYq: <quote number>`.
 
 ## Changing the wording
 

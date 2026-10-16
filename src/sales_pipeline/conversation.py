@@ -87,6 +87,16 @@ def parse_date(value: str | None) -> datetime | None:
     return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
 
 
+def workday(d: datetime, s) -> datetime:
+    """The same time on the next working day when d falls on a weekend (your computer's time zone)."""
+    if not getattr(s, "skip_weekends", True):
+        return d
+    local = d.astimezone()
+    while local.weekday() >= 5:
+        local += timedelta(days=1)
+    return local.astimezone(timezone.utc)
+
+
 def iso(d: datetime | None) -> str | None:
     return d.isoformat(timespec="seconds") if d else None
 
@@ -383,7 +393,7 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
             conv.stage = "none"          # "Great, thanks!" needs no answer
         else:
             conv.stage = "reply_needed"
-            conv.due_at = iso(last_in + timedelta(hours=s.first_reply_hours))
+            conv.due_at = iso(workday(last_in + timedelta(hours=s.first_reply_hours), s))
     elif last_out:
         n = max(1, touches)
         now = now or datetime.now(timezone.utc)
@@ -397,22 +407,22 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
             conv.revisited_at = iso(checkins[-1])
             if sum(1 for at, _ in outs if at >= checkins[-1]) == 1:
                 conv.stage, conv.followup_no = "awaiting_customer", len(s.followup_days)
-                conv.due_at = iso(checkins[-1] + timedelta(days=s.revisit_followup_days))
+                conv.due_at = iso(workday(checkins[-1] + timedelta(days=s.revisit_followup_days), s))
             else:
-                conv.stage, conv.due_at = "exhausted", iso(last_out + timedelta(days=s.close_after_days))
+                conv.stage, conv.due_at = "exhausted", iso(workday(last_out + timedelta(days=s.close_after_days), s))
         elif quiet > s.revisit_until_days:
             conv.stage = "none"           # quiet for more than 3 months: left alone
         elif quiet >= s.revisit_after_days and (n > len(s.followup_days) or
                                                  catch_up(n, last_out, s.followup_days, now) > n):
             # Went quiet a month or more ago (we fell behind, or all follow-ups went unanswered).
-            conv.stage, conv.due_at = "revisit", iso(last_out + timedelta(days=s.revisit_after_days))
+            conv.stage, conv.due_at = "revisit", iso(workday(last_out + timedelta(days=s.revisit_after_days), s))
         elif n <= len(s.followup_days):
             conv.stage = "awaiting_customer"
-            conv.due_at = iso(last_out + timedelta(days=s.followup_days[n - 1]))
+            conv.due_at = iso(workday(last_out + timedelta(days=s.followup_days[n - 1]), s))
             conv.followup_no = catch_up(n, last_out, s.followup_days, now)
         else:
             conv.stage = "exhausted"
-            conv.due_at = iso(last_out + timedelta(days=s.close_after_days))
+            conv.due_at = iso(workday(last_out + timedelta(days=s.close_after_days), s))
     return conv
 
 

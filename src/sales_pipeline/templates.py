@@ -9,6 +9,8 @@ from pathlib import Path
 
 HEADER = re.compile(r"^===\s*(?P<key>[\w-]+)\s*(?:\|\s*(?P<label>.*?))?\s*===\s*$")
 PLACEHOLDER_REPLY = "[write your reply here]"
+FILL_IN = "[fill in"          # "[fill in: ...]" parts of a template must be replaced before drafting
+STRIKE = re.compile(r"~~(.+?)~~")
 FOLLOWUP_STAGES = 4
 
 
@@ -63,9 +65,16 @@ def followup_variants(templates: dict[str, Template], n: int, quote_sent: bool) 
     return found
 
 
+def strike(text: str) -> str:
+    """~~$650/sample~~ -> $̶6̶5̶0̶/̶s̶a̶m̶p̶l̶e̶ (crossed out, also in plain-text email)."""
+    return STRIKE.sub(lambda m: "".join(c + "\u0336" for c in m.group(1)), text)
+
+
 def render(t: Template, **values) -> str:
     text = t.body.format_map(_Blank(values))
     text = re.sub(r"\n{3,}", "\n\n", text)
+    if FILL_IN not in text:
+        text = strike(text)       # placeholders still to fill in keep their ~~ ~~ until then
     return text.strip() + "\n"
 
 

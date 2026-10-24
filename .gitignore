@@ -6,6 +6,7 @@ __pycache__/
 .env
 credentials.json
 token.json
+token_calendar.json
 *.db
 exports/
 cowork_feed/

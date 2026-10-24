@@ -138,7 +138,7 @@ dialog .acts{justify-content:flex-end}
 <dialog id="feed-dlg"><h4>Feed for Cowork</h4><div id="feed-text"></div>
   <div class="acts" style="margin-top:14px"><button class="btn" id="feed-all" title="Write a feed with everything from the last 30 days, including what earlier feeds already had">Write again with everything</button><button class="btn primary" id="feed-ok">OK</button></div></dialog>
 <script>
-const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["revisit","Revisit"],["license","License-in"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
+const VIEWS=[["todo","To decide"],["upcoming","Upcoming"],["revisit","Revisit"],["license","License-in"],["meetings","Coming meetings"],["send","In Gmail drafts"],["done","Done"],["skipped","Skipped"],["activity","Activity"]];
 const KIND={nudge:"Asks you",customer:"Customer",forwarded_inquiry:"Inquiry",you_replied:"You",colleague_replied:"Colleague",note:"Internal",accounting:"Accounting",hold:"Hold",crm:"CRM"};
 let view="todo", tasks=[], counts={}, sel=0, info={tags:{}};
 const deciding=()=>view==="todo"||view==="revisit"||view==="license";   // views where you approve items
@@ -156,8 +156,8 @@ async function api(path,body){
 }
 async function load(keep){
   const id=tasks[sel]?.id;
-  const j=await api(view==="activity"?"activity":"tasks?view="+view);
-  counts=j.counts; info=j; tasks=view==="activity"?[]:j.tasks; window._activity=j.activity||[];
+  const j=await api(view==="activity"?"activity":view==="meetings"?"meetings":"tasks?view="+view);
+  counts=j.counts; info=j; tasks=view==="activity"?[]:view==="meetings"?j.meetings:j.tasks; window._activity=j.activity||[];
   sel=keep&&id?Math.max(0,tasks.findIndex(t=>t.id===id)):0; if(sel<0)sel=0;
   render();
 }
@@ -172,7 +172,29 @@ function rowWhy(t){
   if(view==="done"&&t.issues.length)return t.issues[0];      // why it's done: closed, Called, 等回复 ...
   const r=[...t.reasons]; if(t.issues.length)r.push(t.issues[0]); return r.join(" · ")||t.subject;
 }
+const meetWhen=iso=>{if(!iso)return"";const d=new Date(iso);return d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})+" "+d.toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"})};
+function renderMeetingsList(){
+  if(!tasks.length){$("#list").innerHTML=`<div class="empty">${!info.calendar?"Connect your calendar once (double-click “4 Connect Calendar”) to see customer meetings here.":info.error?esc(info.error):"No meetings with customers in the next 2 weeks."}</div>`;return}
+  $("#list").innerHTML=tasks.map((m,i)=>`<div class="row ${i===sel?"sel":""}" data-i="${i}"><span class="pill medium">${esc(new Date(m.start).toLocaleDateString(undefined,{month:"short",day:"numeric"}))}</span>
+    <span class="t">${esc(m.title)}</span><span class="amt">${esc(new Date(m.start).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"}))}</span>
+    <span class="why">${esc(m.customers.join(", "))}${m.conversations.length?"":" · no email conversation found"}</span></div>`).join("");
+  document.querySelectorAll(".row").forEach(r=>r.onclick=()=>{sel=+r.dataset.i;render()});
+}
+function renderMeeting(){
+  const m=tasks[sel],d=$("#detail");if(!m){d.innerHTML=`<div class="empty">Nothing selected.</div>`;return}
+  const convs=m.conversations.map(t=>{const c=t.conv||{};
+    return `<section><h3>${esc(t.title||t.subject)} ${t.action?`<span class="tag act">${esc(t.action)}</span>`:""} <span class="tag">${esc(t.status.replace("_"," "))}</span></h3>
+      <div class="sub">${esc(t.subject)} · <a href="${esc(t.url)}" target="_blank" rel="noopener">Open in Gmail</a>${c.quote_sent?" · quote sent":" · no quote sent yet"}${c.company?" · "+esc(c.company):""}</div>
+      ${(t.reasons||[]).length?`<div class="d">${esc(t.reasons.join(" · "))}</div>`:""}
+      ${timeline(c).replace(/^<section>|<\/section>$/g,"")}</section>`}).join("");
+  d.innerHTML=`<div class="dh"><h2>${esc(m.title)}</h2><span class="tag act">${esc(meetWhen(m.start))}</span></div>
+    <div class="sub">${m.join?(m.join.startsWith("http")?`<a href="${esc(m.join)}" target="_blank" rel="noopener">Join link</a> · `:esc(m.join)+" · "):""}<a href="${esc(m.url)}" target="_blank" rel="noopener">Open in Calendar</a> · with ${esc(m.customers.join(", "))}</div>
+    ${m.description?`<div class="callout col"><b>Agenda</b><div style="white-space:pre-wrap">${esc(m.description)}</div></div>`:""}
+    ${convs||`<div class="callout">No email conversation with ${esc(m.customers.join(", "))} found in the last 3 months.</div>`}
+    <div class="d" style="margin-top:12px">After the meeting, “teleconference” is added to the Cowork feed for this inquiry.</div>`;
+}
 function renderList(){
+  if(view==="meetings")return renderMeetingsList();
   if(view==="activity"){
     const a=window._activity; $("#list").innerHTML=a.length?a.map(x=>`<div class="act-row"><div class="when">${esc(new Date(x.ts).toLocaleString())}</div>${esc(x.text)}</div>`).join(""):`<div class="empty">Nothing yet. Everything Sales Desk does on its own is listed here.</div>`;return}
   if(!tasks.length){$("#list").innerHTML=`<div class="empty">${info.scanning&&view==="todo"?"Reading your Gmail… items appear here as they are found (the first scan can take a minute or two).":({todo:"All clear. Nothing needs a decision right now.",upcoming:"No follow-ups scheduled.",revisit:"Nobody to revisit: no conversation went quiet 30 days to 3 months ago.",license:"No licensing or collaboration requests.",send:"No drafts waiting in Gmail."}[view]||"Nothing here.")}</div>`;return}
@@ -228,12 +250,13 @@ function outcomesHtml(t){
   if(tg.lost)b.push(`<button class="btn small" data-out="lost">${esc(tg.lost)}</button>`);
   if(tg.no_response)b.push(`<button class="btn small" data-out="no_response">${esc(tg.no_response)}</button>`);
   return `<div class="outcomes"><span class="lbl">Outcome:</span>${b.join("")}
-    <span class="lbl" style="margin-left:8px" title="Off the list; back in To decide in 2 days if nothing happens">You:</span><button class="btn small" data-park="called">Called</button><button class="btn small" data-park="waiting">等回复</button><button class="btn small" data-park="to_follow_up">待跟进</button>
+    <span class="lbl" style="margin-left:8px" title="Off the list; back in To decide in 2 days if nothing happens">You:</span><button class="btn small" data-park="called">Called</button><button class="btn small" data-park="waiting">等回复</button><button class="btn small" data-park="to_follow_up">待跟进</button><button class="btn small" data-noneed title="Nothing to answer (e.g. an FYI or a thank-you): moves to Done until someone writes in this thread again">No need to reply</button>
     <span class="lbl" style="margin-left:8px">Later:</span><button class="btn small" data-snooze="1">1 day</button><button class="btn small" data-snooze="3">3 days</button><button class="btn small" data-snooze="7">1 week</button>
     <button class="btn small" data-ignore title="A vendor or someone who isn't a sales contact: no more follow-ups for this person (others at the same company are not affected)">Not a customer</button></div>`;
 }
 function renderDetail(){
   const d=$("#detail"); $(".bar")?.remove();
+  if(view==="meetings")return renderMeeting();
   if(view==="activity"){d.innerHTML=`<div class="empty">Activity shows what Sales Desk did on its own: Zoho notes and tags, Gmail replies it recorded, snoozes.</div>`;return}
   const t=tasks[sel];
   if(!t){d.innerHTML=`<div class="empty">Nothing selected.</div>`;return}
@@ -275,6 +298,7 @@ function renderDetail(){
   d.querySelector("[data-ignore]")?.addEventListener("click",ignore);
   d.querySelectorAll("[data-park]").forEach(b=>b.onclick=()=>park(b.dataset.park,b.textContent));
   d.querySelector("[data-notlicense]")?.addEventListener("click",notLicense);
+  d.querySelector("[data-noneed]")?.addEventListener("click",async()=>{try{await api(`tasks/${t.id}/no_need`,{});toast("Moved to Done. It comes back if someone writes in this thread.");await load()}catch(e){toast(e.message)}});
   d.querySelectorAll("[data-variant]").forEach(sel=>sel.onchange=()=>{
     const st=t.plan.find(s=>s.id===sel.closest(".step").dataset.step);const v=st.draft.variants.find(x=>x.key===sel.value);
     const ta=sel.closest(".step").querySelector("textarea");if(v)ta.value=v.body});

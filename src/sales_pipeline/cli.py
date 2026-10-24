@@ -13,6 +13,7 @@
   followups            what is due: replies, follow-ups 1-4, close-outs
   crm-feed [--all]     write the Gmail feed for Cowork (what to update in Zoho) into CRM_FEED_DIR
   gmail-auth           one-time Gmail sign-in (opens a browser)
+  calendar-auth        one-time read-only Google Calendar sign-in (Coming meetings tab)
   zoho-auth CODE       one-time: trade a Zoho self-client grant code for a refresh token
   zoho-setup [--write] read your Zoho tags (已下单, 不买了 ...) and map them to the follow-up stages
 """
@@ -180,6 +181,7 @@ def main(argv: list[str] | None = None) -> None:
     ui.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
     sub.add_parser("check")
     sub.add_parser("gmail-auth")
+    sub.add_parser("calendar-auth")
     za = sub.add_parser("zoho-auth")
     za.add_argument("code", nargs="?", help="grant code from https://api-console.zoho.com (asked for when left out)")
 
@@ -194,6 +196,21 @@ def main(argv: list[str] | None = None) -> None:
                      "(README, step 3).")
         _gmail(s)
         print(f"Gmail connected as {s.user_email}; sign-in saved to {s.gmail_token_file}")
+        return
+    if a.cmd == "calendar-auth":
+        from datetime import datetime, timezone
+
+        from .meetings import CalendarSource
+
+        if not os.path.exists(s.gmail_credentials_file):
+            sys.exit(f"First put the Google sign-in file in this folder as {s.gmail_credentials_file}.")
+        try:
+            now = datetime.now(timezone.utc)
+            CalendarSource(s.gmail_credentials_file, s.calendar_token_file).events(now, now)   # a real call
+        except Exception as e:
+            sys.exit(f"Calendar sign-in didn't work: {e}\nIn Google Cloud Console, open the Sales Desk project, "
+                     "search for 'Google Calendar API' and click Enable, then run this again.")
+        print(f"Calendar connected (read-only); saved to {s.calendar_token_file}. Restart Sales Desk.")
         return
     if a.cmd == "zoho-auth":
         import requests
@@ -269,7 +286,9 @@ def main(argv: list[str] | None = None) -> None:
             s.db_path = "demo.db"
             store = Store(s.db_path)
             _, _, pipe = seed(s, store)
-            serve(App(s, store, pipe, demo=True), a.port or 8799, open_browser=not a.no_browser)
+            from .demo import DemoCalendar
+            serve(App(s, store, pipe, demo=True, calendar=DemoCalendar()), a.port or 8799,
+                  open_browser=not a.no_browser)
             return
         if not (os.path.exists(s.gmail_token_file) or os.path.exists(s.gmail_credentials_file)):
             sys.exit("Gmail isn't connected yet, so there is nothing to show.\n"
@@ -287,7 +306,17 @@ def main(argv: list[str] | None = None) -> None:
               f"{os.path.abspath(s.crm_feed_dir)}).")
         if pipe.llm is None:
             print("Note: Claude is off (no ANTHROPIC_API_KEY); order emails are read by the built-in parser.")
-        serve(App(s, store, pipe, scanner=pipe.scan), a.port or 8765, s.scan_interval_min, open_browser=not a.no_browser)
+        calendar = None
+        if os.path.exists(s.calendar_token_file):
+            try:
+                from .meetings import CalendarSource
+                calendar = CalendarSource(s.gmail_credentials_file, s.calendar_token_file)
+            except Exception as e:
+                print(f"Note: the calendar couldn't be opened ({e}); run `sales-pipeline calendar-auth` again.")
+        else:
+            print("Note: Coming meetings needs the calendar: double-click '4 Connect Calendar' once.")
+        serve(App(s, store, pipe, scanner=pipe.scan, calendar=calendar), a.port or 8765, s.scan_interval_min,
+              open_browser=not a.no_browser)
         return
 
     if a.cmd == "check":

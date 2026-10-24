@@ -293,6 +293,9 @@ def collect(pipeline, everything: bool = False, days: int = 30, lock=None, left_
         ask_create = new_inquiry and (everything or not store.feed_seen(create_key))
         if not (entries or tags or ask_create):
             continue
+        if (store.decision(rec.thread_id) or {}).get("label") == "No need to reply" and not items and \
+                not any(e.who != "customer" for e in entries):
+            continue                     # you decided there's nothing to do: nothing for Cowork either
         if ask_create:
             keys.append(create_key)
         mine = [o for o in orders if o.order.customer.email.lower() == email]

@@ -288,6 +288,15 @@ class Executor:
         self.store.log(thread_id, f"{label}; back to To decide {short(back)} if nothing happens")
         return self._get(thread_id)
 
+    def no_need(self, thread_id: str) -> Record:
+        """No need to reply (e.g. "thanks, received", an FYI): Done until someone writes in the thread again."""
+        self._get(thread_id)
+        issues = [f"No need to reply ({short(_now())}): back if someone writes in this thread"]
+        self.store.update(thread_id, status="done", issues=issues)
+        self.store.set_decision(thread_id, "done", issues=issues, label="No need to reply")
+        self.store.log(thread_id, "No need to reply")
+        return self._get(thread_id)
+
     def not_license(self, thread_id: str) -> Record:
         """A License-in item that is really a sales request."""
         self.store.set_meta(f"kind:{thread_id}", "sales")

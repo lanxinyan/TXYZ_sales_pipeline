@@ -116,3 +116,23 @@ def test_connecting_zoho_saves_values_into_env(tmp_path, monkeypatch):
     _set_env("ZOHO_REFRESH_TOKEN", "1000.r3fr35h", str(env))
     assert env.read_text(encoding="utf-8") == ("ZOHO_CLIENT_ID=1000.ABC\nSENDER_NAME=Tony\n"
                                                "ZOHO_REFRESH_TOKEN=1000.r3fr35h\n")
+
+
+def test_coming_meetings_with_customers_and_the_note_afterwards(settings):
+    from sales_pipeline.demo import DemoCalendar
+    from sales_pipeline.meetings import note_past_meetings
+
+    store = Store(settings.db_path)
+    _, _, pipe = seed(settings, store)
+    app = App(settings, store, pipe, demo=True, calendar=DemoCalendar())
+    code, j = app.handle("GET", "/api/meetings", {})
+    titles = [m["title"] for m in j["meetings"]]
+    assert code == 200 and titles == ["HDX-MS epitope mapping: call with Priya", "Intro call: new structural biology lab"]
+    priya = j["meetings"][0]                                   # the internal team meeting is left out
+    assert priya["customers"] == ["p.nair@helio-thera.example"] and priya["join"].startswith("https://meet")
+    assert priya["conversations"][0]["id"] == "demo-fu2" and j["meetings"][1]["conversations"] == []
+    assert j["counts"]["meetings"] == 2
+    # The kickoff call yesterday goes to Cowork as a teleconference, once.
+    assert note_past_meetings(app.calendar, settings, store) == 1
+    assert note_past_meetings(app.calendar, settings, store) == 0
+    assert any(i["text"].endswith(": teleconference") for i in store.feed_items())

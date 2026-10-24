@@ -147,6 +147,11 @@ Profiles →** your profile **→ Zoho CRM API**. You don't need to reconnect af
 Gmail when it starts and every 15 minutes after that. Anything missing? Run `sales-pipeline check`, or just
 re-run `1 Setup`, which ends with the same checklist.
 
+**Connect your calendar (once, optional, for Coming meetings)**: in Google Cloud Console, open the same
+*Sales Desk* project, search for **Google Calendar API** and click **Enable**. Then double-click
+**`4 Connect Calendar`** and allow read-only calendar access in the browser. This is a separate sign-in
+(`token_calendar.json`); your Gmail sign-in isn't changed. Restart Sales Desk afterwards.
+
 **6. Point the feed at Cowork (once)**: open `.env` in Notepad and set `CRM_FEED_DIR` to the folder Cowork
 works in, for example
 `CRM_FEED_DIR=C:\Users\you\OneDrive\Jobapplication2024\creativebio\试用\CRMsystem_updates\Cowork`.
@@ -213,6 +218,12 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
 - **You: Called / 等回复 / 待跟进** (on every item): moves it to Done. If nothing happens in the thread for 2
   days (`PARK_DAYS`), it comes back to To decide; an email from the customer brings it back at once.
   Called also adds `MMDDYY: called` to the Cowork feed.
+- **No need to reply** (on every item): for a thank-you, an FYI or anything that needs no answer. Moves it to
+  Done; it comes back only if someone writes in that thread again. Nothing goes to Cowork for it.
+- **Coming meetings**: meetings in your Google Calendar for the next 2 weeks with someone from outside the
+  company invited (team meetings and declined ones are left out), next to that customer's email
+  conversation: what was asked, what you sent, whether a quote went out, the agenda and the join link.
+  After the meeting, `MMDDYY: teleconference` goes into the Cowork feed for that inquiry.
 - What you decide (an outcome button, Skip, a snooze) stays decided until the customer or a colleague writes
   in that thread again.
 - **In Gmail drafts**: drafts waiting for you to send. **Open in Gmail** opens it; **I sent it: check Gmail**

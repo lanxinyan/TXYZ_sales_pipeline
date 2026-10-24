@@ -55,8 +55,11 @@ def record_json(r: Record, s) -> dict:
 
 
 class App:
-    def __init__(self, settings, store: Store, pipeline: Pipeline, scanner=None, demo: bool = False):
+    def __init__(self, settings, store: Store, pipeline: Pipeline, scanner=None, demo: bool = False,
+                 calendar=None):
         self.s, self.store, self.pipeline, self.demo = settings, store, pipeline, demo
+        self.calendar = calendar                 # Coming meetings (None: calendar not connected)
+        self._meetings: tuple[float, list] | None = None
         self.exec = Executor(settings, store, gmail=pipeline.gmail, zoho=pipeline.zoho, pipeline=pipeline)
         self.scanner = scanner
         self.lock = threading.RLock()            # one Gmail/Zoho action at a time
@@ -69,7 +72,22 @@ class App:
             log.exception("re-planning older items failed")
 
     def counts(self) -> dict:
-        return {v: len(self.store.list(st)) for v, st in VIEWS.items()}
+        out = {v: len(self.store.list(st)) for v, st in VIEWS.items()}
+        if self._meetings:
+            out["meetings"] = len(self._meetings[1])
+        return out
+
+    def meetings(self) -> list[dict]:
+        """Customer meetings of the next 2 weeks (read again at most every 5 minutes)."""
+        from .meetings import customer_meetings, meetings_json
+
+        if self.calendar is None:
+            return []
+        if not self._meetings or time.time() - self._meetings[0] > 300:
+            with self.lock:
+                items = customer_meetings(self.calendar, self.s, self.store)
+            self._meetings = (time.time(), items)
+        return meetings_json(self._meetings[1], self.store, self.s)
 
     def scan(self) -> dict:
         if not self._scan_guard.acquire(blocking=False):
@@ -84,6 +102,15 @@ class App:
             # Drafts you sent (or deleted) in Gmail since the last look.
             for k, v in self.exec.sync_all(lock=self.lock).items():
                 result[k] = result.get(k, 0) + v
+            if self.calendar is not None:
+                from .meetings import note_past_meetings
+                try:
+                    with self.lock:
+                        if note_past_meetings(self.calendar, self.s, self.store):
+                            result["meetings recorded for Cowork"] = 1
+                except Exception as e:
+                    log.warning("calendar check failed: %s", e)
+                self._meetings = None
             self.last_scan = datetime.now(timezone.utc).isoformat(timespec="seconds")
             return result
         finally:
@@ -102,7 +129,7 @@ class App:
         return [record_json(r, self.s) for r in recs]
 
     def info(self) -> dict:
-        return {"demo": self.demo, "zoho": self.pipeline.zoho is not None, "crm": self.pipeline.crm is not None,
+        return {"demo": self.demo, "zoho": self.pipeline.zoho is not None, "crm": self.pipeline.crm is not None, "calendar": self.calendar is not None,
                 "gmail": self.pipeline.gmail is not None, "feed_dir": self.s.crm_feed_dir,
                 "tags": self.pipeline.tags, "last_scan": self.last_scan, "scanning": self.scanning,
                 "me": self.s.user_email, "followup_days": self.s.followup_days}
@@ -113,6 +140,13 @@ class App:
         # Reading never waits for a scan; actions take turns with it, one thread at a time.
         if method == "GET" and parts == ["tasks"]:
             return 200, {"tasks": self._list(query.get("view", "todo")), "counts": self.counts(), **self.info()}
+        if method == "GET" and parts == ["meetings"]:
+            try:
+                items = self.meetings()
+            except Exception as e:
+                return 200, {"meetings": [], "error": f"Calendar couldn't be read: {e}", "counts": self.counts(),
+                             **self.info()}
+            return 200, {"meetings": items, "counts": self.counts(), **self.info()}
         if method == "GET" and parts == ["activity"]:
             return 200, {"activity": self.store.activity(limit=200), "counts": self.counts(), **self.info()}
         if method == "POST" and parts == ["crm-feed"]:
@@ -150,6 +184,8 @@ class App:
                         rec = ex.outcome(tid, body["outcome"])
                     elif action == "park":
                         rec = ex.park(tid, body["what"])
+                    elif action == "no_need":
+                        rec = ex.no_need(tid)
                     elif action == "not_license":
                         rec = ex.not_license(tid)
                     elif action == "ignore":

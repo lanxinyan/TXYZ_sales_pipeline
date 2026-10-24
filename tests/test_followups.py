@@ -380,3 +380,15 @@ def test_list_price_is_crossed_out_in_plain_text():
     from sales_pipeline.templates import strike
 
     assert strike("~~$650/sample~~ now $520") == "".join(c + "̶" for c in "$650/sample") + " now $520"
+
+
+def test_no_need_to_reply_stays_done_until_someone_writes(demo):
+    store, gmail, _, pipe, ex = demo
+    assert ex.no_need("demo-declined").status == "done"
+    pipe.scan(rescan=True)
+    assert store.get("demo-declined").status == "done"
+    gmail.threads["demo-declined"].messages.append(EmailMessage(
+        "nn1", "j.hale@riverton-med.example", [ME], [], "Re: Cryo-EM", datetime.now(timezone.utc).isoformat(),
+        "Actually, the core facility can't do it. Can we restart?", message_id="<nn1@m>"))
+    pipe.scan()
+    assert store.get("demo-declined").status == "ready"

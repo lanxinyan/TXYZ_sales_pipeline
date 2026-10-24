@@ -283,6 +283,28 @@ class DemoGmail:
         self.log.append(f"deleted {draft_id}")
 
 
+class DemoCalendar:
+    """Made-up meetings, relative to now."""
+
+    def events(self, start, end):
+        now = datetime.now(timezone.utc)
+
+        def ev(i, title, hours, people, link=""):
+            at = now + timedelta(hours=hours)
+            return {"id": f"ev{i}", "summary": title, "status": "confirmed", "htmlLink": "https://calendar.google.com/",
+                    "start": {"dateTime": at.isoformat()}, "end": {"dateTime": (at + timedelta(hours=1)).isoformat()},
+                    "attendees": [{"email": ME, "self": True, "responseStatus": "accepted"}]
+                    + [{"email": p} for p in people], "hangoutLink": link,
+                    "description": "Discuss the HDX-MS quote and sample prep." if i == 1 else ""}
+
+        items = [ev(1, "HDX-MS epitope mapping: call with Priya", 26, ["p.nair@helio-thera.example", YANI],
+                    "https://meet.google.com/demo-abc"),
+                 ev(2, "Intro call: new structural biology lab", 74, ["pi@newlab-demo.example"]),
+                 ev(3, "Team weekly", 30, [YANI]),
+                 ev(4, "Cryo-EM project kickoff", -20, ["dr.lee@harborline-bio.example"])]
+        return [e for e in items if start <= datetime.fromisoformat(e["start"]["dateTime"]) <= end]
+
+
 class DemoZoho:
     """Just enough of Zoho CRM for the demo: records, tags, notes."""
 

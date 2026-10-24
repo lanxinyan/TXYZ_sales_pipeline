@@ -36,6 +36,7 @@ DEFAULT_INTERNAL_DOMAINS = [
 class Settings:
     gmail_credentials_file: str = "credentials.json"
     gmail_token_file: str = "token.json"
+    calendar_token_file: str = "token_calendar.json"   # read-only calendar sign-in (Coming meetings)
     # The mailbox owner. Filled from the Gmail profile when left empty.
     user_email: str = ""
     # Orders, POs and quote requests ...
@@ -130,6 +131,7 @@ class Settings:
         return cls(
             gmail_credentials_file=env("GMAIL_CREDENTIALS_FILE", d.gmail_credentials_file),
             gmail_token_file=env("GMAIL_TOKEN_FILE", d.gmail_token_file),
+            calendar_token_file=env("CALENDAR_TOKEN_FILE") or d.calendar_token_file,
             user_email=(env("USER_EMAIL") or "").lower(),
             gmail_query=env("GMAIL_QUERY") or d.gmail_query,
             followup_query=env("FOLLOWUP_QUERY") or d.followup_query,

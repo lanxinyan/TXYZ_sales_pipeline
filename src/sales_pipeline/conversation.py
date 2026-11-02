@@ -68,7 +68,11 @@ REVISIT_MARK = re.compile(r"\b(?:it'?s|it has) been (?:a while|some time)\b", re
 # A colleague asking you to act: "张博士报吧", "这个没报 张博士有空报么", "Tony, can you quote this?"
 ASK_TO_ACT = re.compile(r"报|回复|回一下|跟进|quote|reply|follow up|take (?:a look|care)|看下|看一下", re.I)
 # Licensing / collaboration requests go to their own tab (License-in), never to the CRM feed.
-LICENSE_IN = re.compile(r"\blicens(?:e|es|ed|ing)\b|\bcollaborat(?:e|es|ion|ions|ive|ing)\b|授权|许可", re.I)
+LICENSE_IN = re.compile(r"\blicens(?:e|es|ed|ing)\b|\bin-licens|\bout-licens|授权|许可", re.I)
+COLLABORATION = re.compile(r"\bcollaborat(?:e|es|ion|ions|ive|ing)\b|\bpartnership\b|合作", re.I)
+# "a potential collaboration ... estimated cost & timeline?" is a quote request, not License-in.
+SALES_ASK = re.compile(r"\b(?:quot(?:e|ation)|price|pricing|cost|budget|estimate|timeline|turnaround|"
+                       r"service|services|samples?)\b|报价", re.I)
 CRM_REF = re.compile(r"\b(Inquiry-\d{5,})\b[^\n]{0,30}?\bcrm\b\s*(\w+(?:\s*&\s*\w+)?)?", re.I)
 GREETING = re.compile(r"^\s*(Dear|Hi|Hello|Hey)\b[ ,]*([^,\n]{0,40}?)\s*[,，!]?\s*$", re.I)
 NO_REPLY_LOCALPART = re.compile(r"^(?:no-?reply|do-?not-?reply|mailer-daemon|notifications?|postmaster)\b", re.I)
@@ -266,6 +270,11 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
         to_me = me in [r.lower() for r in m.to]
         text = fresh_text(m.body)
         name = "You" if sender == me else display_name(m)
+        partner = partner_in(text, s)
+        if partner and sender != me and who.internal(sender):
+            name = partner                 # e.g. service@ signed by Michelle White
+        if partner:
+            conv.partner = conv.partner or partner
         event = {"at": iso(at), "who": name, "email": sender, "kind": "note", "text": first_line(text)}
         inbound = None  # {email, name, company, phone, topic}
 
@@ -297,13 +306,14 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                     cc.append(sender)
                 conv.last_outbound_at, conv.last_outbound_by = iso(at), sender
                 conv.last_outbound = {
-                    "gmail_id": m.id, "rfc_id": m.message_id, "sender": sender, "sender_name": display_name(m),
+                    "gmail_id": m.id, "rfc_id": m.message_id, "sender": sender, "sender_name": name if name != "You" else display_name(m),
                     "to": [r for r in (x.lower() for x in m.to) if who.customer(r)] or ext,
                     "cc": list(dict.fromkeys(cc)), "customer_cc": [r for r in (x.lower() for x in m.cc)
                                                                    if who.customer(r)],
                     "subject": m.subject, "date": iso(at), "body": text[:4000]}
                 conv.replied_ever = True
                 conv.i_participated = conv.i_participated or sender == me
+                conv.partner_wrote = conv.partner_wrote or (bool(partner) and sender != me)
                 g = GREETING.match(next((ln for ln in text.splitlines() if ln.strip()), ""))
                 if g and g.group(2).strip():
                     conv.salutation = {"word": g.group(1).capitalize(), "name": g.group(2).strip()}
@@ -324,7 +334,8 @@ def analyze(thread: EmailThread, s: Settings, me: str, ignored=frozenset(),
                     event["kind"] = "hold"
                     event["text"] = sentence_with(text, HOLD) or event["text"]
                 elif (sender != me and me in recips and ASK_TO_ACT.search(text)
-                      and any(n and n.lower() in text.lower() for n in s.my_names)):
+                      and any(n and n.lower() in text.lower()
+                              for n in [*s.my_names, *getattr(s, "partner_names", [])])):
                     event["kind"] = "nudge"
                     conv.nudge = {"who": name, "at": iso(at), "text": first_line(text, 80)}
                 ref = CRM_REF.search(text)
@@ -438,11 +449,23 @@ def catch_up(n: int, last_out: datetime, days: list[int], now: datetime) -> int:
     return k
 
 
+def partner_in(text: str, s) -> str | None:
+    """The partner (e.g. "Michelle White") this text names: full name, or "This is Michelle"-style."""
+    for full in getattr(s, "partner_names", []):
+        first = full.split()[0]
+        if re.search(rf"\b{re.escape(full)}\b", text, re.I) or re.search(
+                rf"\b(?:this is|i am|i'm|regards,?|best,?|thanks,?|dear|hi|hello)\s+{re.escape(first)}\b|"
+                rf"^\s*{re.escape(first)}\s*$", text, re.I | re.M):
+            return full
+    return None
+
+
 def owner_is_me(conv: Conversation) -> bool:
     """Whoever answers the customer owns the conversation. It is yours when you have
     written to this customer, or nobody has answered yet and it was sent/forwarded to
-    you directly (not just copied). Once a colleague is answering, it is theirs."""
-    if conv.i_participated:
+    you directly (not just copied). Once a colleague is answering, it is theirs -
+    unless that colleague is a partner of yours (PARTNER_NAMES): then it's yours too."""
+    if conv.i_participated or conv.partner:
         return True
     if conv.replied_ever:
         return False

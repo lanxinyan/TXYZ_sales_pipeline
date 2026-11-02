@@ -24,7 +24,8 @@ from pathlib import Path
 
 from .conversation import (ACK_ONLY, CRM_REF, DECLINE, ORDER_INTENT, QUOTE_ASK, REVISIT_MARK, Who, display_name,
                            first_line,
-                           form_fields, forward_origin, fresh_text, owner_is_me, parse_date, quote_statement, short)
+                           form_fields, forward_origin, fresh_text, owner_is_me, parse_date, partner_in, quote_statement,
+                           short)
 from .models import EmailMessage, EmailThread
 from .store import Record
 
@@ -139,7 +140,7 @@ def read_thread(thread: EmailThread, rec: Record, s, ignored=frozenset()) -> dic
                     out["inquiry"].append(ref.group(1))
             else:
                 since_customer += 1
-                by = "Tony" if sender == me else display_name(m)
+                by = "Tony" if sender == me else (partner_in(text, s) or display_name(m))
                 if sender == me:
                     out["tony_replied"] = out["tony_replied"] or at
                 nums = quote_numbers(text, m.attachment_names, s)
@@ -214,6 +215,8 @@ def _involved(rec: Record) -> str | None:
         return None
     if c.i_participated:
         return "you wrote to the customer"
+    if c.partner:
+        return f"{c.partner}'s conversation (you partner on it)"
     if not c.replied_ever and owner_is_me(c):
         return "new inquiry sent to you, not answered yet"
     return None

@@ -41,8 +41,9 @@ def classify(thread: EmailThread, order: Order, conv: Conversation | None, s: Se
         return "order"
     if not conv or not conv.customer_emails:
         return "other"
-    from .conversation import LICENSE_IN
-    if LICENSE_IN.search((conv.first_inbound_text or "") + " " + thread.subject):
+    from .conversation import COLLABORATION, LICENSE_IN, SALES_ASK
+    first = (conv.first_inbound_text or "") + " " + thread.subject
+    if LICENSE_IN.search(first) or (COLLABORATION.search(first) and not SALES_ASK.search(first)):
         return "license"          # licensing / collaboration: its own tab, never in the CRM feed
     ours = re.search(s.order_code_regex, thread.subject + "\n" + "\n".join(fresh_text(m.body) for m in thread.messages))
     # A customer who wrote to us and got an answer is a sales conversation, quote or not.

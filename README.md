@@ -65,6 +65,10 @@ Gmail if you ever need to.
   again. Your notes go on their record.
 - If the customer is already tagged 已下单 / 不买了 in Zoho, no follow-ups are suggested. If they write
   back anyway, you still see it.
+- **Partners**: conversations where Michelle White's name appears (she writes from service@ and signs her
+  name; also "Hi Michelle" from a customer, or a colleague asking her) are yours too, even when she is the one
+  answering. Her emails show as "Michelle White" instead of the shared mailbox. More partners:
+  `PARTNER_NAMES=Michelle White,Another Name` in `.env`.
 - A conversation belongs to whoever answers the customer. If a colleague answered and you haven't written to
   that customer, it's left to them, even when the inquiry was forwarded to both of you.
 
@@ -212,7 +216,8 @@ Start it with **`Start Sales Desk`** (or `sales-pipeline ui`, at http://127.0.0.
 - **Upcoming**: scheduled follow-ups with their dates. You can make one's draft early.
 - **Revisit**: customers who went quiet 30 days to 3 months ago, quote-sent ones first. Work through them at
   your pace: the check-in becomes a Gmail draft like any other email.
-- **License-in**: emails whose first message is about licensing or a collaboration. They get a reply draft
+- **License-in**: emails whose first message is about licensing, or about a collaboration without asking
+  for a price, cost, timeline or service (a "potential collaboration… estimated cost?" is a normal inquiry). They get a reply draft
   if you want one, but no automatic follow-ups, and they are never in the Cowork feed. **It's a sales
   request** moves one back to the normal list.
 - **You: Called / 等回复 / 待跟进** (on every item): moves it to Done. If nothing happens in the thread for 2

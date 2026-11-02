@@ -324,3 +324,30 @@ def test_follow_ups_due_on_a_weekend_move_to_monday():
     t = EmailThread("t", "Re: Quote", [M(ME, [CUST], "Below is our quote CBSXY10152601.", fri.isoformat())])
     c = analyze(t, s, ME, now=fri)                                     # follow-up 1 would be Saturday
     assert parse_date(c.due_at).astimezone().weekday() == 0
+
+
+def test_threads_with_michelle_are_yours_too_and_collaboration_with_a_price_ask_is_sales():
+    from sales_pipeline.conversation import owner_is_me
+    from sales_pipeline.models import Order
+    from sales_pipeline.tasks import classify
+
+    svc = "service@creative-biostructure.com"
+    ask = ("We would like to inquire about a potential collaboration. Could you provide a rough budgetary "
+           "estimate and typical timeline for this structural analysis service?")
+    t = EmailThread("t", "Re: Structural Biology Services", [
+        M(CUST, [svc], ask, day(1)),
+        M(svc, [CUST], "Hi Pat,\n\nThis is Michelle from Creative Biostructure. We are working on the inquiry.\n\n"
+          "Michelle\n\n*Michelle White, Ph.D.*\nSenior Project Manager", day(2), cc=[ME])])
+    c = analyze(t, S, ME)
+    assert c.partner == "Michelle White" and c.partner_wrote and owner_is_me(c)
+    assert c.events[-1]["who"] == "Michelle White" and c.last_outbound["sender_name"] == "Michelle White"
+    assert classify(t, Order(is_sales_order=False), c, S) == "quote_request"        # not License-in
+    # Another colleague answering without Michelle: still theirs.
+    other = EmailThread("t", "Re: MS imaging", [M(CUST, [svc], "Quote for MS imaging?", day(1)),
+                                                M(svc, [CUST], "Hi, this is Charles. Attached.\n\nCharles", day(2),
+                                                  cc=[ME])])
+    assert not owner_is_me(analyze(other, S, ME))
+    offer = EmailThread("t", "Partnership", [M(CUST, [ME], "We'd like to explore a research collaboration "
+                                                           "with your team on our platform.", day(1)),
+                                             M(ME, [CUST], "Thanks, let me check.", day(2))])
+    assert classify(offer, Order(is_sales_order=False), analyze(offer, S, ME), S) == "license"

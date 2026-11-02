@@ -76,6 +76,9 @@ class Settings:
     sender_name: str = "Tony"
     sender_phone: str = "1-631-559-9269"
     # How colleagues address you in internal emails ("张博士报吧"): such a request moves the item up.
+    # People you partner with: when their name appears in a thread (e.g. Michelle White, who writes
+    # from service@ and signs her name), the conversation is yours to deal with too.
+    partner_names: list[str] = field(default_factory=lambda: ["Michelle White"])
     my_names: list[str] = field(default_factory=lambda: ["张博士", "张新研", "新研", "tony", "dr. zhang", "xinyan"])
     email_signature: str = "Best regards,\n\n{sender_name}"
     accounting_email: str = "accounting@creative-biomart.com"
@@ -155,6 +158,8 @@ class Settings:
             sender_name=env("SENDER_NAME") or d.sender_name,
             sender_phone=env("SENDER_PHONE") if env("SENDER_PHONE") is not None else d.sender_phone,
             my_names=_list(env("MY_NAMES"), d.my_names),
+            partner_names=[n.strip() for n in (env("PARTNER_NAMES") or "").split(",") if n.strip()]
+            or d.partner_names,
             email_signature=(env("EMAIL_SIGNATURE") or d.email_signature).replace("\\n", "\n"),
             accounting_email=(env("ACCOUNTING_EMAIL") if env("ACCOUNTING_EMAIL") is not None
                               else d.accounting_email).lower(),

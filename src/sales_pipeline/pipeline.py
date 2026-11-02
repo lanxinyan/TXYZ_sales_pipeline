@@ -121,7 +121,7 @@ def sales_order_payload(order: Order, *, account_id=None, contact_id=None, produ
 PLAN_VERSION = "3"   # 3: draft-quote wording on replies
 # Bump when the way threads are read changes: every thread is then read again once
 # (e.g. version 2: "we will send a formal quote" is a promise, not a quote sent).
-READ_VERSION = "4"   # 3: quiet 30 days-3 months revisited; 4: second website-form layout, colleague nudges
+READ_VERSION = "5"   # 4: 2nd form layout, nudges; 5: partners (Michelle White), stricter License-in
 
 class Pipeline:
     def __init__(self, settings: Settings, store: Store, gmail=None, zoho: ZohoCRM | None = None,
